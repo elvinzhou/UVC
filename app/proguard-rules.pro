@@ -1,3 +1,1 @@
-# JNI looks up FrameListener.onFrame by name.
--keep interface dev.borescope.uvc.FrameListener { *; }
--keepclasseswithmembernames class * { native <methods>; }
+# App-specific rules. The uvc library ships its own consumer-rules.pro.

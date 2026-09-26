@@ -40,9 +40,20 @@ borescope/
 git submodule update --init --depth 1
 ```
 
-Open the root folder in Android Studio (it will generate the Gradle wrapper),
-install **NDK r28+** and **CMake 3.22.1** from the SDK Manager, then run `app`
-on a phone with the borescope attached through a USB-C OTG adapter.
+Open the root folder in Android Studio, install **NDK 28.0.13004108** and
+**CMake 3.22.1** from the SDK Manager, then run `app` on a phone with the
+borescope attached through a USB-C OTG adapter. From the command line:
+
+```bash
+./gradlew assembleDebug testDebugUnitTest lintDebug
+```
+
+## CI/CD
+
+GitHub Actions builds, unit-tests and lints every push and PR, and uploads the
+debug APK as an artifact. Each green push to `main` refreshes the **nightly**
+pre-release. Pushing a `vX.Y.Z` tag publishes a GitHub Release (signed if the
+`SIGNING_*` repository secrets are set, see `CLAUDE.md`).
 
 Native logs: `adb logcat -s uvc-native`.
 
@@ -69,7 +80,8 @@ Then add the vendor/product IDs (decimal) to `device_filter.xml`.
 
 ## Milestones
 
-- [x] 0. Scaffold: native build, JNI bridge, Compose viewer, lossless snapshots
+- [x] 0. Scaffold: native build, JNI bridge, Compose viewer, lossless snapshots;
+      Gradle wrapper, unit tests, CI/CD
 - [ ] 1. First light on a real device; fix whatever the scope's descriptors throw at us
 - [ ] 2. Robust hot-unplug (teardown while streaming), reconnect without re-prompting
 - [ ] 3. Video recording (`capture/VideoRecorder.kt`)

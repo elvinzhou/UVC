@@ -1,0 +1,15 @@
+# libusb/libuvc submodules are deliberately NOT tracked here: they stay pinned
+# to release tags and are bumped by hand (see CLAUDE.md).
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      androidx-and-kotlin:
+        patterns: ["*"]
+  - package-ecosystem: github-actions
+    directories: ["/", "/.github/actions/*"]
+    schedule:
+      interval: weekly
