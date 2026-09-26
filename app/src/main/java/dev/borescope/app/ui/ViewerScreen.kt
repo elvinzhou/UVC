@@ -16,16 +16,27 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.PhotoCamera
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import android.os.SystemClock
+import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -46,6 +57,9 @@ fun ViewerScreen(vm: ViewerViewModel) {
     val frame by vm.frame.collectAsStateWithLifecycle()
     val rotation by vm.rotation.collectAsStateWithLifecycle()
     val showInfo by vm.showInfo.collectAsStateWithLifecycle()
+    val recordingSince by vm.recordingSince.collectAsStateWithLifecycle()
+    val snackbar = remember { SnackbarHostState() }
+    LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         frame?.let {
@@ -68,6 +82,10 @@ fun ViewerScreen(vm: ViewerViewModel) {
             )
         }
 
+        recordingSince?.let { since ->
+            RecordingIndicator(since, Modifier.align(Alignment.TopEnd).statusBarsPadding().padding(12.dp))
+        }
+
         if (showInfo) {
             InfoPanel(state, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp))
         }
@@ -83,12 +101,58 @@ fun ViewerScreen(vm: ViewerViewModel) {
             FilledIconButton(onClick = vm::takePhoto, enabled = frame != null) {
                 Icon(Icons.Filled.PhotoCamera, contentDescription = "Take photo")
             }
+            val recording = recordingSince != null
+            FilledIconButton(
+                onClick = vm::toggleRecording,
+                enabled = recording || state is CameraState.Streaming,
+                colors = if (recording) {
+                    IconButtonDefaults.filledIconButtonColors(containerColor = Color.Red, contentColor = Color.White)
+                } else {
+                    IconButtonDefaults.filledIconButtonColors()
+                },
+            ) {
+                if (recording) {
+                    Icon(Icons.Filled.Stop, contentDescription = "Stop recording")
+                } else {
+                    Icon(Icons.Filled.FiberManualRecord, contentDescription = "Record video", tint = Color.Red)
+                }
+            }
             FilledIconButton(onClick = vm::toggleInfo) {
                 Icon(Icons.Filled.Info, contentDescription = "Camera details")
             }
-            // TODO(phase 3): record button once capture/VideoRecorder is implemented
+        }
+
+        SnackbarHost(
+            snackbar,
+            Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 88.dp),
+        )
+    }
+}
+
+@Composable
+private fun RecordingIndicator(since: Long, modifier: Modifier) {
+    var now by remember { mutableLongStateOf(SystemClock.elapsedRealtime()) }
+    LaunchedEffect(since) {
+        while (true) {
+            now = SystemClock.elapsedRealtime()
+            delay(250)
         }
     }
+    Text(
+        text = "● REC " + formatElapsed(now - since),
+        color = Color.Red,
+        style = MaterialTheme.typography.labelLarge,
+        modifier = modifier,
+    )
+}
+
+/** "m:ss" or "h:mm:ss". */
+internal fun formatElapsed(millis: Long): String {
+    val total = (millis.coerceAtLeast(0) / 1000)
+    val h = total / 3600
+    val m = (total / 60) % 60
+    val s = total % 60
+    return if (h > 0) "%d:%02d:%02d".format(h, m, s) else "%d:%02d".format(m, s)
 }
 
 @Composable

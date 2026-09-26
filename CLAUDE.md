@@ -92,9 +92,13 @@ Never commit a keystore.
 6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
 7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
 
-**Phase 3: video recording** (`capture/VideoRecorder.kt`)
-- [ ] MediaCodec H.264 via input Surface + `lockHardwareCanvas`, MediaMuxer → MediaStore Movies/Borescope
-- [ ] Orientation hint from UI rotation; record button
+**Phase 3: video recording** — DONE in code, **not yet verified on hardware**
+- [x] `capture/VideoRecorder`: MediaCodec H.264 via input Surface + `lockHardwareCanvas`,
+      drain thread → MediaMuxer → MediaStore Movies/Borescope (IS_PENDING until finished,
+      deleted if empty); `VideoSpec` fits ≤1080p, 16-aligned, ~0.15 bpp (unit-tested)
+- [x] Orientation hint from UI rotation; record button + REC timer; recording stops
+      automatically when the stream ends (unplug, background, stall)
+- Hardware check: record 30 s, play it back in Photos; unplug mid-recording → file is still valid
 
 **Phase 4: polish and performance**
 - [ ] Format picker, mirror, pinch zoom
