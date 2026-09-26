@@ -11,26 +11,26 @@ import android.hardware.usb.UsbManager
 class UvcCamera private constructor(
     private val connection: UsbDeviceConnection,
     private var handle: Long,
-) : AutoCloseable {
+) : CameraDevice {
 
     /** All stream modes the camera advertises, e.g. "MJPEG 1280x720@30". */
-    val formats: List<UvcFormat> by lazy {
+    override val formats: List<UvcFormat> by lazy {
         UvcFormat.fromFlat(UvcNative.nativeGetFormats(checkOpen()))
     }
 
-    /** Best default for a borescope: largest MJPEG mode. */
-    fun preferredFormat(): UvcFormat? =
-        formats.filter { it.type == UvcFormat.Type.MJPEG }.maxByOrNull { it.width * it.height }
-            ?: formats.maxByOrNull { it.width * it.height }
+    override val diagnostics: String by lazy { UvcNative.nativeGetDiagnostics(checkOpen()) }
 
-    fun startStreaming(format: UvcFormat, listener: FrameListener) {
+    /** Best default for a borescope, see [UvcFormat.preferred]. */
+    fun preferredFormat(): UvcFormat? = UvcFormat.preferred(formats)
+
+    override fun startStreaming(format: UvcFormat, listener: FrameListener) {
         val rc = UvcNative.nativeStart(
             checkOpen(), format.type.ordinal, format.width, format.height, format.fps, listener,
         )
         check(rc == 0) { "Failed to start $format (uvc error $rc)" }
     }
 
-    fun stopStreaming() {
+    override fun stopStreaming() {
         if (handle != 0L) UvcNative.nativeStop(handle)
     }
 
@@ -38,8 +38,8 @@ class UvcCamera private constructor(
         if (handle != 0L) {
             UvcNative.nativeClose(handle)
             handle = 0L
+            connection.close()   // closes the fd after libusb is done with it
         }
-        connection.close()   // closes the fd after libusb is done with it
     }
 
     private fun checkOpen(): Long = handle.also { check(it != 0L) { "Camera is closed" } }

@@ -13,7 +13,12 @@ borescope/
 │       ├── res/xml/device_filter.xml
 │       └── java/dev/borescope/app/
 │           ├── MainActivity.kt
-│           ├── ViewerViewModel.kt  # connect, frames -> Bitmap, snapshot
+│           ├── ViewerViewModel.kt  # frames -> Bitmap, snapshot, owns the camera thread
+│           ├── camera/
+│           │   ├── CameraController.kt # lifecycle state machine on one camera thread
+│           │   ├── CameraSource.kt     # device discovery/permission abstraction
+│           │   └── UsbCameraSource.kt  # ...backed by UsbManager + UvcCamera
+│           ├── frame/                # FrameDecoder (MJPEG/YUYV), Yuyv converter
 │           ├── ui/ViewerScreen.kt
 │           └── capture/
 │               ├── PhotoSaver.kt     # raw MJPEG frame -> MediaStore, lossless
@@ -22,12 +27,13 @@ borescope/
 │   └── src/main/
 │       ├── java/dev/borescope/uvc/
 │       │   ├── UsbCameraManager.kt  # discovery, permission, detach events
+│       │   ├── CameraDevice.kt      # interface for an open camera (fakeable)
 │       │   ├── UvcCamera.kt         # open / formats / start / stop / close
 │       │   ├── UvcFormat.kt         # stream modes + FrameListener
 │       │   └── UvcNative.kt         # JNI declarations
 │       └── cpp/
 │           ├── CMakeLists.txt       # builds libusb + libuvc from submodules
-│           ├── uvc_jni.cpp          # JNI bridge (~250 lines)
+│           ├── uvc_jni.cpp          # JNI bridge
 │           └── config/libuvc/libuvc_config.h
 └── third_party/                  # git submodules, pinned
     ├── libusb   @ v1.0.30
@@ -82,16 +88,20 @@ Then add the vendor/product IDs (decimal) to `device_filter.xml`.
 
 - [x] 0. Scaffold: native build, JNI bridge, Compose viewer, lossless snapshots;
       Gradle wrapper, unit tests, CI/CD
-- [ ] 1. First light on a real device; fix whatever the scope's descriptors throw at us
-- [ ] 2. Robust hot-unplug (teardown while streaming), reconnect without re-prompting
+- [x] 1. Descriptor dump + info panel, FOURCC-checked formats, YUYV fallback
+      (awaiting first light on the real scope)
+- [x] 2. Camera state machine on a dedicated thread, safe hot-unplug, reconnect
+      without re-prompting, stall watchdog (awaiting on-device verification)
 - [ ] 3. Video recording (`capture/VideoRecorder.kt`)
 - [ ] 4. Format picker, mirror, zoom, `inBitmap` reuse for less GC
 - [ ] 5. UVC controls; vendor extension unit for LEDs if applicable
 
 ## Known sharp edges
 
-- `ViewerViewModel.connect()/disconnect()` aren't serialized yet; rapid
-  background/foreground can race. Move camera ops onto a single-thread dispatcher.
-- Pulling the cable mid-stream is the classic crash path. Test it early.
+- Everything that touches the camera runs through `CameraController` on the
+  "camera" thread. Calling `UvcCamera` from anywhere else reintroduces the races
+  it removed.
+- Pulling the cable mid-stream is the classic crash path. The teardown order in
+  `nativeClose` is deliberate; see the comment there before changing it.
 - Android's `jni.h` differs slightly from OpenJDK's (e.g. `AttachCurrentThread`
   takes `JNIEnv**`), so build the native code with the NDK, not a desktop JDK.

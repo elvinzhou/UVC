@@ -52,28 +52,34 @@ class UsbCameraManager(private val context: Context) {
         }
     }
 
+    /** Emits the device whenever a UVC device is plugged in. */
+    fun attachEvents(): Flow<UsbDevice> = deviceEvents(UsbManager.ACTION_USB_DEVICE_ATTACHED)
+
     /** Emits the device whenever a UVC device is unplugged. */
-    fun detachEvents(): Flow<UsbDevice> = callbackFlow {
+    fun detachEvents(): Flow<UsbDevice> = deviceEvents(UsbManager.ACTION_USB_DEVICE_DETACHED)
+
+    private fun deviceEvents(action: String): Flow<UsbDevice> = callbackFlow {
         val receiver = object : BroadcastReceiver() {
             override fun onReceive(c: Context, intent: Intent) {
-                val device = if (Build.VERSION.SDK_INT >= 33) {
-                    intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
-                } else {
-                    @Suppress("DEPRECATION") intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
-                }
+                val device = deviceFrom(intent)
                 if (device != null && isUvc(device)) trySend(device)
             }
         }
         // System broadcast, so it must be registered as exported.
-        ContextCompat.registerReceiver(
-            context, receiver, IntentFilter(UsbManager.ACTION_USB_DEVICE_DETACHED),
-            ContextCompat.RECEIVER_EXPORTED,
-        )
+        ContextCompat.registerReceiver(context, receiver, IntentFilter(action), ContextCompat.RECEIVER_EXPORTED)
         awaitClose { context.unregisterReceiver(receiver) }
     }
 
     companion object {
         private const val ACTION_PERMISSION = "dev.borescope.uvc.USB_PERMISSION"
+
+        /** The [UsbManager.EXTRA_DEVICE] of a USB intent or broadcast, if any. */
+        fun deviceFrom(intent: Intent): UsbDevice? =
+            if (Build.VERSION.SDK_INT >= 33) {
+                intent.getParcelableExtra(UsbManager.EXTRA_DEVICE, UsbDevice::class.java)
+            } else {
+                @Suppress("DEPRECATION") intent.getParcelableExtra(UsbManager.EXTRA_DEVICE)
+            }
 
         fun isUvc(device: UsbDevice): Boolean =
             (0 until device.interfaceCount).any {

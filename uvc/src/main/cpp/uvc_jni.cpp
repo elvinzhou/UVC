@@ -13,8 +13,13 @@
 #include <android/log.h>
 #include <pthread.h>
 
+#include <cstdio>
+#include <cstdlib>
+#include <cstring>
+
 #include <atomic>
 #include <mutex>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -65,6 +70,69 @@ static jint TypeFor(uvc_frame_format f) {
     case UVC_FRAME_FORMAT_YUYV:  return kYuyv;
     case UVC_FRAME_FORMAT_H264:  return kH264;
     default:                     return kOther;
+  }
+}
+
+// Packs a 4-character code little-endian, e.g. "YUY2" -> 'Y' | 'U' << 8 | ...
+// Kotlin unpacks it in UvcFormat.fourccToString.
+static jint PackFourcc(const uint8_t* c) {
+  return static_cast<jint>(c[0] | (c[1] << 8) | (c[2] << 16) | (static_cast<uint32_t>(c[3]) << 24));
+}
+
+// A format descriptor's subtype alone doesn't say what the pixels are:
+// "uncompressed" may be YUY2, NV12, UYVY, ... and "frame based" may be H.264,
+// H.265, MJPEG, ... Only the GUID (whose first 4 bytes are a FOURCC) tells.
+static jint TypeForDescriptor(const uvc_format_desc_t* fmt) {
+  switch (fmt->bDescriptorSubtype) {
+    case UVC_VS_FORMAT_MJPEG:
+      return kMjpeg;
+    case UVC_VS_FORMAT_UNCOMPRESSED:
+      return memcmp(fmt->fourccFormat, "YUY2", 4) == 0 ? kYuyv : kOther;
+    case UVC_VS_FORMAT_FRAME_BASED:
+      return memcmp(fmt->fourccFormat, "H264", 4) == 0 ? kH264 : kOther;
+    default:
+      return kOther;
+  }
+}
+
+static jint FourccForDescriptor(const uvc_format_desc_t* fmt) {
+  static const uint8_t kMjpg[4] = {'M', 'J', 'P', 'G'};
+  switch (fmt->bDescriptorSubtype) {
+    case UVC_VS_FORMAT_UNCOMPRESSED:
+    case UVC_VS_FORMAT_FRAME_BASED:
+      return PackFourcc(fmt->fourccFormat);
+    case UVC_VS_FORMAT_MJPEG:
+      return PackFourcc(kMjpg);
+    default:
+      return 0;
+  }
+}
+
+// libuvc's human-readable descriptor dump. Device strings can hold arbitrary
+// bytes, and NewStringUTF aborts on invalid modified UTF-8, so keep it ASCII.
+static std::string DiagnosticsFor(uvc_device_handle_t* devh) {
+  char* buf = nullptr;
+  size_t len = 0;
+  FILE* f = open_memstream(&buf, &len);
+  if (!f) return "open_memstream failed";
+  uvc_print_diag(devh, f);
+  fclose(f);
+  std::string out(buf ? buf : "", len);
+  free(buf);
+  for (char& c : out) {
+    auto u = static_cast<unsigned char>(c);
+    if (u >= 0x80 || (u < 0x20 && c != '\n' && c != '\t')) c = '?';
+  }
+  return out;
+}
+
+static void LogLines(const std::string& text) {
+  size_t start = 0;
+  while (start < text.size()) {
+    size_t end = text.find('\n', start);
+    if (end == std::string::npos) end = text.size();
+    LOGI("%.*s", static_cast<int>(end - start), text.c_str() + start);
+    start = end + 1;
   }
 }
 
@@ -152,31 +220,33 @@ Java_dev_borescope_uvc_UvcNative_nativeOpen(JNIEnv*, jclass, jint fd) {
   });
 
   LOGI("Opened UVC device on fd %d", fd);
+  LogLines(DiagnosticsFor(s->devh));   // Phase 1: every descriptor, in logcat
   return reinterpret_cast<jlong>(s);
 }
 
-// Returns a flat IntArray: [type, width, height, fps] per frame descriptor.
+// Returns a flat IntArray: [type, fourcc, width, height, fps] per frame descriptor.
+// Keep the stride in sync with UvcFormat.fromFlat.
 JNIEXPORT jintArray JNICALL
 Java_dev_borescope_uvc_UvcNative_nativeGetFormats(JNIEnv* env, jclass, jlong handle) {
   Session* s = FromHandle(handle);
   std::vector<jint> out;
   for (const uvc_format_desc_t* fmt = uvc_get_format_descs(s->devh); fmt; fmt = fmt->next) {
-    jint type;
-    switch (fmt->bDescriptorSubtype) {
-      case UVC_VS_FORMAT_MJPEG:        type = kMjpeg; break;
-      case UVC_VS_FORMAT_UNCOMPRESSED: type = kYuyv;  break;  // TODO: check GUID for non-YUYV raw
-      case UVC_VS_FORMAT_FRAME_BASED:  type = kH264;  break;  // TODO: check GUID for H.264
-      default:                         type = kOther; break;
-    }
+    jint type = TypeForDescriptor(fmt);
+    jint fourcc = FourccForDescriptor(fmt);
     for (const uvc_frame_desc_t* fr = fmt->frame_descs; fr; fr = fr->next) {
       uint32_t interval = fr->dwDefaultFrameInterval;
       jint fps = interval ? static_cast<jint>(10000000 / interval) : 0;
-      out.insert(out.end(), {type, fr->wWidth, fr->wHeight, fps});
+      out.insert(out.end(), {type, fourcc, fr->wWidth, fr->wHeight, fps});
     }
   }
   jintArray arr = env->NewIntArray(static_cast<jsize>(out.size()));
   env->SetIntArrayRegion(arr, 0, static_cast<jsize>(out.size()), out.data());
   return arr;
+}
+
+JNIEXPORT jstring JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeGetDiagnostics(JNIEnv* env, jclass, jlong handle) {
+  return env->NewStringUTF(DiagnosticsFor(FromHandle(handle)->devh).c_str());
 }
 
 // Returns 0 on success, a negative uvc_error_t otherwise.
@@ -238,6 +308,13 @@ Java_dev_borescope_uvc_UvcNative_nativeClose(JNIEnv* env, jclass, jlong handle) 
   // Teardown order matters (hot-unplug crashes live here):
   // 1) stop stream + close device while events still flow, 2) stop event thread,
   // 3) free libuvc context, 4) free libusb context.
+  //
+  // After a cable pull this is still safe: libusb sees POLLERR on the fd, completes
+  // every in-flight transfer with LIBUSB_TRANSFER_NO_DEVICE on our event thread,
+  // and libuvc frees them, so uvc_stop_streaming's wait returns. libuvc's status
+  // (interrupt) transfer is not cancelled by uvc_close; libusb_close drops it from
+  // its in-flight list under the event lock, and the fd is closed afterwards by
+  // UsbDeviceConnection.close(), so it is never reaped.
   Java_dev_borescope_uvc_UvcNative_nativeStop(env, nullptr, handle);
   if (s->devh) uvc_close(s->devh);
   s->events_running = false;

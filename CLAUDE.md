@@ -50,6 +50,11 @@ Never commit a keystore.
 - R8 keep rules for the library go in `uvc/consumer-rules.pro`, not the app.
 - Native teardown order matters (see `nativeClose`). Don't reorder it without a hot-unplug test.
 - Pure logic goes behind interfaces so it can be unit-tested without a device.
+- Only `CameraController` touches `CameraDevice`, and only from its actor. Never call camera
+  methods from the UI, and never make a `FrameListener` wait on the camera thread (stopping
+  a stream joins the frame thread, so that deadlocks).
+- JNI returns format records as flat ints `[type, fourcc, width, height, fps]`; the stride
+  is `UvcFormat.STRIDE` and must match `nativeGetFormats`.
 
 ## Game plan (keep this section current)
 
@@ -58,22 +63,34 @@ Never commit a keystore.
 - [x] Unit-test setup (`UvcFormatTest`), CI build/test/lint, nightly + tagged releases
 - [x] Env-based signing/versioning, Dependabot, web session-start hook
 
-**Phase 1: first picture on real hardware** (blocked on the user's `lsusb -v` output and a device)
-- [ ] Log all format/frame descriptors on open; add a debug screen that lists them
-- [ ] YUYV → Bitmap fallback for scopes without MJPEG
-- [ ] Check the GUID for `VS_FORMAT_UNCOMPRESSED` (it isn't always YUYV) and for
-      `VS_FORMAT_FRAME_BASED` (it isn't always H.264) in `nativeGetFormats`
-- [ ] Narrow `device_filter.xml` to the scope's VID/PID (decimal)
+**Phase 1: first picture** — DONE in code, **not yet verified on hardware** (assumed MJPEG)
+- [x] Descriptor dump (`uvc_print_diag`) logged on open and shown in the in-app info panel
+- [x] YUYV → Bitmap fallback (`frame/Yuyv.kt`) for scopes without MJPEG
+- [x] FOURCC check: `VS_FORMAT_UNCOMPRESSED` is YUYV only for `YUY2`, `VS_FORMAT_FRAME_BASED`
+      is H.264 only for `H264`; everything else is `OTHER` and never auto-selected
+- [ ] Narrow `device_filter.xml` to the scope's VID/PID (decimal) once known
 
-**Phase 2: lifecycle and hot-unplug** (most likely source of crashes)
-- [ ] Run every camera operation on one dedicated single-thread dispatcher; nothing on the main thread
-      (`nativeClose` joins threads, so it blocks the UI today)
-- [ ] Explicit state machine Idle → Opening → Streaming → Closing; fixes:
-      duplicate open from double `connect()`, a connect still in flight surviving `disconnect()`,
-      and state still saying Streaming after `onStop`
-- [ ] Cable pull mid-stream: make native teardown safe when the device is already gone
-- [ ] Reconnect without re-prompting for permission
-- [ ] `Camera` interface + fake for unit-testing the state machine
+**Phase 2: lifecycle and hot-unplug** — DONE in code, **not yet verified on hardware**
+- [x] `camera/CameraController`: every camera op serialized on one "camera" thread; public
+      methods only enqueue, so the main thread never blocks
+- [x] States Idle / NoDevice / Connecting / NeedsPermission / Streaming / Error; start/stop
+      races, stop during the permission dialog, unplug, replug all covered by `CameraControllerTest`
+- [x] No permission-dialog loops: prompt at most once per start after a decline; attach
+      events never prompt; `retry()` re-asks
+- [x] Stall watchdog: no frames for 5 s → close + Error (never a frozen "live" picture)
+- [x] `CameraSource`/`CameraDevice` interfaces + fakes; 30 controller tests
+
+### Hardware verification checklist (do this with the real scope)
+1. `adb logcat -s uvc-native` on first plug-in: the descriptor dump should list an MJPEG
+   format. Paste it into this file under a new "Our scope" heading (VID:PID, formats,
+   iso vs bulk, extension units). If there is no MJPEG, YUYV should still show a picture.
+2. First light: picture appears; info panel (ⓘ) highlights the chosen mode.
+3. Background/foreground 10× quickly: no crash, no second permission prompt, picture returns.
+4. Pull the cable mid-stream 5×: no crash or ANR, "Plug in a USB borescope" appears;
+   re-plug → "Open with Borescope?" → picture returns.
+5. Decline permission once: "Grant USB permission" button, no dialog loop on resume.
+6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
+7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
 
 **Phase 3: video recording** (`capture/VideoRecorder.kt`)
 - [ ] MediaCodec H.264 via input Surface + `lockHardwareCanvas`, MediaMuxer → MediaStore Movies/Borescope

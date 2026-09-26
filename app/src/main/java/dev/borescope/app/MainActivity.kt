@@ -1,5 +1,7 @@
 package dev.borescope.app
 
+import android.content.Intent
+import android.hardware.usb.UsbManager
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -22,11 +24,19 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        viewModel.connect()
+        viewModel.start()
     }
 
     override fun onStop() {
-        viewModel.disconnect()   // release the camera when backgrounded
+        viewModel.stop()   // release the camera when backgrounded
         super.onStop()
+    }
+
+    // singleTop: plugging the scope in while we're open lands here, with USB
+    // permission already granted by the system's "open with Borescope?" dialog.
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (intent.action == UsbManager.ACTION_USB_DEVICE_ATTACHED) viewModel.onUsbDeviceAttached()
     }
 }

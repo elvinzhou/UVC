@@ -8,6 +8,7 @@ internal object UvcNative {
 
     @JvmStatic external fun nativeOpen(fd: Int): Long
     @JvmStatic external fun nativeGetFormats(handle: Long): IntArray
+    @JvmStatic external fun nativeGetDiagnostics(handle: Long): String
     @JvmStatic external fun nativeStart(
         handle: Long, type: Int, width: Int, height: Int, fps: Int, listener: FrameListener,
     ): Int
