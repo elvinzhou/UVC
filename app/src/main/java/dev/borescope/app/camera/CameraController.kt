@@ -1,7 +1,10 @@
 package dev.borescope.app.camera
 
 import dev.borescope.uvc.CameraDevice
+import dev.borescope.uvc.ControlValue
+import dev.borescope.uvc.ExtensionUnit
 import dev.borescope.uvc.FrameListener
+import dev.borescope.uvc.UvcControl
 import dev.borescope.uvc.UvcFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
@@ -20,6 +23,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.job
 import kotlinx.coroutines.launch
+import java.util.concurrent.ConcurrentHashMap
 
 sealed interface CameraState {
     /** Not wanted (app in background); the camera is released. */
@@ -32,6 +36,9 @@ sealed interface CameraState {
         val format: UvcFormat,
         val formats: List<UvcFormat>,
         val diagnostics: String,
+        /** Image controls the camera supports, with ranges and current values. */
+        val controls: List<ControlValue> = emptyList(),
+        val extensionUnits: List<ExtensionUnit> = emptyList(),
     ) : CameraState
     data class Error(val message: String) : CameraState
 }
@@ -69,6 +76,8 @@ class CameraController(
         data class Detached(val id: String) : Command
         data class Stalled(val session: Int) : Command
         data class SelectFormat(val format: UvcFormat) : Command
+        data object ApplyControls : Command
+        data object ResetControls : Command
         data object Shutdown : Command
     }
 
@@ -87,6 +96,9 @@ class CameraController(
 
     /** A permission dialog we're waiting on; cancelled by [stop] and [shutdown]. */
     @Volatile private var permissionRequest: Job? = null
+
+    /** Latest requested value per control, applied (and coalesced) by the actor. */
+    private val pendingControls = ConcurrentHashMap<UvcControl, Int>()
 
     /** Written from the native frame thread, read by the watchdog. */
     @Volatile private var lastFrameAt = 0L
@@ -133,6 +145,20 @@ class CameraController(
     /** Switches the running stream to [format] (one of [CameraState.Streaming.formats]). */
     fun selectFormat(format: UvcFormat) {
         commands.trySend(Command.SelectFormat(format))
+    }
+
+    /**
+     * Sets an image control. Rapid calls (a dragged slider) are coalesced:
+     * only the latest value per control is sent.
+     */
+    fun setControl(control: UvcControl, value: Int) {
+        pendingControls[control] = value
+        commands.trySend(Command.ApplyControls)
+    }
+
+    /** Puts every image control back to the camera's default. */
+    fun resetControls() {
+        commands.trySend(Command.ResetControls)
     }
 
     /** A USB_DEVICE_ATTACHED intent reached the activity (permission is granted with it). */
@@ -188,6 +214,8 @@ class CameraController(
                 _state.value = CameraState.Error("No video from the camera for ${stallTimeoutMs / 1000} s")
             }
             is Command.SelectFormat -> switchFormat(command.format)
+            Command.ApplyControls -> applyControls()
+            Command.ResetControls -> resetControls(device)
             Command.Shutdown -> {
                 disconnect()
                 _state.value = CameraState.Idle
@@ -238,12 +266,60 @@ class CameraController(
             opened.startStreaming(format, frameTap)
             device = opened
             deviceId = id
-            _state.value = CameraState.Streaming(format, formats, opened.diagnostics)
+            _state.value = CameraState.Streaming(
+                format, formats, opened.diagnostics,
+                controls = readControlsSafely(opened),
+                extensionUnits = runCatching { opened.extensionUnits }.getOrDefault(emptyList()),
+            )
             startWatchdog(thisSession)
         } catch (e: Exception) {
             if (device !== opened) closeQuietly(opened)
             throw e
         }
+    }
+
+    // Controls are optional extras: a camera that misbehaves here must still stream.
+    private fun readControlsSafely(camera: CameraDevice): List<ControlValue> =
+        try {
+            camera.readControls()
+        } catch (_: Exception) {
+            emptyList()
+        }
+
+    private fun applyControls() {
+        val open = device ?: run { pendingControls.clear(); return }
+        if (pendingControls.isEmpty()) return   // an earlier command already took them
+        val batch = pendingControls.keys.toList().mapNotNull { key -> pendingControls.remove(key)?.let { key to it } }
+        for ((control, value) in batch) {
+            try {
+                open.setControl(control, value)
+            } catch (e: Exception) {
+                _notices.tryEmit(e.message ?: "Camera refused ${control.label}")
+            }
+        }
+        refreshControls(open)
+    }
+
+    private fun resetControls(open: CameraDevice?) {
+        open ?: return
+        val current = (_state.value as? CameraState.Streaming)?.controls ?: return
+        pendingControls.clear()
+        // Auto switches first, so manual values aren't rejected while auto is on.
+        val ordered = current.sortedBy { it.control.kind != UvcControl.Kind.TOGGLE }
+        for (c in ordered) {
+            if (c.current == c.default) continue
+            try {
+                open.setControl(c.control, c.default)
+            } catch (_: Exception) {
+                // Some cameras refuse a manual value while its auto mode is on; the re-read shows the truth.
+            }
+        }
+        refreshControls(open)
+    }
+
+    private fun refreshControls(open: CameraDevice) {
+        val streaming = _state.value as? CameraState.Streaming ?: return
+        _state.value = streaming.copy(controls = readControlsSafely(open))
     }
 
     private fun switchFormat(format: UvcFormat) {
@@ -299,6 +375,7 @@ class CameraController(
 
     /** Closes the camera, if open. Blocks until native threads have stopped. */
     private fun disconnect() {
+        pendingControls.clear()
         watchdog?.cancel()
         watchdog = null
         val open = device ?: return

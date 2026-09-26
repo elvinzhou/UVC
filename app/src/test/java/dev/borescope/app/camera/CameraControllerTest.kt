@@ -446,6 +446,87 @@ class CameraControllerTest {
         assertFalse(cam.closed)
     }
 
+    // --- Image controls -----------------------------------------------------
+
+    private fun CameraController.controlValue(c: dev.borescope.uvc.UvcControl) =
+        (state.value as CameraState.Streaming).controls.single { it.control == c }
+
+    @Test
+    fun controls_areReadOnConnect() = controllerTest { c ->
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        assertEquals(3, (c.current as CameraState.Streaming).controls.size)
+    }
+
+    @Test
+    fun controls_failingReadStillStreams() = controllerTest { c ->
+        source.plugIn("cam", permission = true)
+        source.nextDevice = { FakeDevice().apply { readControlsError = IllegalStateException("stall") } }
+        c.start(); runCurrent()
+        val state = c.current as CameraState.Streaming
+        assertEquals(emptyList<dev.borescope.uvc.ControlValue>(), state.controls)
+    }
+
+    @Test
+    fun setControl_appliesAndRefreshes() = controllerTest { c ->
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        c.setControl(dev.borescope.uvc.UvcControl.BRIGHTNESS, 20); runCurrent()
+        assertEquals(20, c.controlValue(dev.borescope.uvc.UvcControl.BRIGHTNESS).current)
+    }
+
+    @Test
+    fun setControl_coalescesRapidChanges() = controllerTest { c ->
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        for (v in 1..10) c.setControl(dev.borescope.uvc.UvcControl.BRIGHTNESS, v)
+        runCurrent()
+        assertEquals(listOf(dev.borescope.uvc.UvcControl.BRIGHTNESS to 10), source.opened.single().setCalls)
+        assertEquals(10, c.controlValue(dev.borescope.uvc.UvcControl.BRIGHTNESS).current)
+    }
+
+    @Test
+    fun setControl_refusedIsANoticeNotAnError() = runTest {
+        val c = newController()
+        val notices = mutableListOf<String>()
+        backgroundScope.launch(StandardTestDispatcher(testScheduler)) { c.notices.collect { notices += it } }
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        source.opened.single().refusedControls = setOf(dev.borescope.uvc.UvcControl.BRIGHTNESS)
+
+        c.setControl(dev.borescope.uvc.UvcControl.BRIGHTNESS, 30); runCurrent()
+        assertTrue(c.current is CameraState.Streaming)
+        assertEquals(0, c.controlValue(dev.borescope.uvc.UvcControl.BRIGHTNESS).current)
+        assertEquals(listOf("Camera refused Brightness = 30"), notices)
+        c.shutdown(); runCurrent()
+    }
+
+    @Test
+    fun setControl_whileNotStreamingIsDropped() = controllerTest { c ->
+        c.setControl(dev.borescope.uvc.UvcControl.BRIGHTNESS, 30); runCurrent()
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        assertTrue(source.opened.single().setCalls.isEmpty())
+    }
+
+    @Test
+    fun resetControls_restoresDefaultsAutoFirst() = controllerTest { c ->
+        source.plugIn("cam", permission = true)
+        c.start(); runCurrent()
+        val cam = source.opened.single()
+        c.setControl(dev.borescope.uvc.UvcControl.WHITE_BALANCE, 3000)
+        c.setControl(dev.borescope.uvc.UvcControl.WHITE_BALANCE_AUTO, 0)
+        c.setControl(dev.borescope.uvc.UvcControl.BRIGHTNESS, 10)
+        runCurrent()
+        cam.setCalls.clear()
+
+        c.resetControls(); runCurrent()
+        assertEquals(dev.borescope.uvc.UvcControl.WHITE_BALANCE_AUTO, cam.setCalls.first().first)
+        assertEquals(0, c.controlValue(dev.borescope.uvc.UvcControl.BRIGHTNESS).current)
+        assertEquals(1, c.controlValue(dev.borescope.uvc.UvcControl.WHITE_BALANCE_AUTO).current)
+        assertEquals(4600, c.controlValue(dev.borescope.uvc.UvcControl.WHITE_BALANCE).current)
+    }
+
     // --- Shutdown -----------------------------------------------------------
 
     @Test

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.filled.FiberManualRecord
 import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
@@ -58,6 +59,7 @@ fun ViewerScreen(vm: ViewerViewModel) {
     val rotation by vm.rotation.collectAsStateWithLifecycle()
     val mirrored by vm.mirrored.collectAsStateWithLifecycle()
     val showInfo by vm.showInfo.collectAsStateWithLifecycle()
+    val showControls by vm.showControls.collectAsStateWithLifecycle()
     val recordingSince by vm.recordingSince.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
@@ -73,6 +75,15 @@ fun ViewerScreen(vm: ViewerViewModel) {
                 color = Color.White,
                 style = MaterialTheme.typography.labelMedium,
                 modifier = Modifier.align(Alignment.TopStart).statusBarsPadding().padding(12.dp),
+            )
+        }
+
+        if (showControls) {
+            ControlsPanel(
+                controls = (state as? CameraState.Streaming)?.controls.orEmpty(),
+                onChange = vm::setControl,
+                onReset = vm::resetControls,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp),
             )
         }
 
@@ -118,7 +129,10 @@ fun ViewerScreen(vm: ViewerViewModel) {
                     Icon(Icons.Filled.FiberManualRecord, contentDescription = "Record video", tint = Color.Red)
                 }
             }
-            FilledIconButton(onClick = vm::toggleInfo) {
+            FilledIconToggleButton(checked = showControls, onCheckedChange = { vm.toggleControls() }) {
+                Icon(Icons.Filled.Tune, contentDescription = "Camera controls")
+            }
+            FilledIconToggleButton(checked = showInfo, onCheckedChange = { vm.toggleInfo() }) {
                 Icon(Icons.Filled.Info, contentDescription = "Camera details")
             }
         }
@@ -215,6 +229,12 @@ private fun InfoPanel(state: CameraState, onSelect: (UvcFormat) -> Unit, modifie
                     .clickable(enabled = f.isDisplayable && !active) { onSelect(f) }
                     .padding(vertical = 6.dp),
             )
+        }
+        if (streaming.extensionUnits.isNotEmpty()) {
+            Text("Extension units (vendor)", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
+            streaming.extensionUnits.forEach {
+                Text(it.toString(), color = Color.White, fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.bodySmall)
+            }
         }
         Text("Descriptors", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))
         Text(

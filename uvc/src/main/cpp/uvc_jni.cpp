@@ -66,6 +66,9 @@ struct Session {
   // Kotlin must copy anything it keeps. Guarded by listener_mutex.
   jbyteArray frame_buf = nullptr;
   jsize frame_cap = 0;
+
+  // VideoControl interface number, for class-specific control requests.
+  int ctrl_interface = -1;
 };
 
 static Session* FromHandle(jlong h) { return reinterpret_cast<Session*>(h); }
@@ -140,6 +143,41 @@ static void LogLines(const std::string& text) {
     LOGI("%.*s", static_cast<int>(end - start), text.c_str() + start);
     start = end + 1;
   }
+}
+
+// The VideoControl interface (class 14, subclass 1) from the active configuration.
+static int FindVideoControlInterface(uvc_device_handle_t* devh) {
+  libusb_device* dev = libusb_get_device(uvc_get_libusb_handle(devh));
+  libusb_config_descriptor* config = nullptr;
+  if (libusb_get_active_config_descriptor(dev, &config) != LIBUSB_SUCCESS) return -1;
+  int found = -1;
+  for (int i = 0; i < config->bNumInterfaces && found < 0; ++i) {
+    const libusb_interface& itf = config->interface[i];
+    for (int a = 0; a < itf.num_altsetting; ++a) {
+      const libusb_interface_descriptor& alt = itf.altsetting[a];
+      if (alt.bInterfaceClass == LIBUSB_CLASS_VIDEO && alt.bInterfaceSubClass == 1) {
+        found = alt.bInterfaceNumber;
+        break;
+      }
+    }
+  }
+  libusb_free_config_descriptor(config);
+  return found;
+}
+
+// A UVC class request to a unit's control. Same wire format as libuvc's
+// uvc_get_ctrl/uvc_set_ctrl, but with a timeout: theirs waits forever, so a
+// camera that never answers would hang the camera thread.
+static int ControlRequest(Session* s, bool get, int unit, int selector, uint8_t* data, int len, int req) {
+  if (s->ctrl_interface < 0) return UVC_ERROR_NOT_SUPPORTED;
+  constexpr unsigned kTimeoutMs = 1000;
+  return libusb_control_transfer(
+      uvc_get_libusb_handle(s->devh),
+      get ? 0xA1 : 0x21,   // class request to interface, device-to-host / host-to-device
+      static_cast<uint8_t>(get ? req : UVC_SET_CUR),
+      static_cast<uint16_t>(selector << 8),
+      static_cast<uint16_t>((unit << 8) | s->ctrl_interface),
+      data, static_cast<uint16_t>(len), kTimeoutMs);
 }
 
 static void FrameCallback(uvc_frame_t* frame, void* user) {
@@ -237,7 +275,8 @@ Java_dev_borescope_uvc_UvcNative_nativeOpen(JNIEnv*, jclass, jint fd) {
     }
   });
 
-  LOGI("Opened UVC device on fd %d", fd);
+  s->ctrl_interface = FindVideoControlInterface(s->devh);
+  LOGI("Opened UVC device on fd %d (VideoControl interface %d)", fd, s->ctrl_interface);
   LogLines(DiagnosticsFor(s->devh));   // Phase 1: every descriptor, in logcat
   return reinterpret_cast<jlong>(s);
 }
@@ -265,6 +304,88 @@ Java_dev_borescope_uvc_UvcNative_nativeGetFormats(JNIEnv* env, jclass, jlong han
 JNIEXPORT jstring JNICALL
 Java_dev_borescope_uvc_UvcNative_nativeGetDiagnostics(JNIEnv* env, jclass, jlong handle) {
   return env->NewStringUTF(DiagnosticsFor(FromHandle(handle)->devh).c_str());
+}
+
+// Processing units as flat longs: [unitId, bmControls] per unit.
+JNIEXPORT jlongArray JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeGetProcessingUnits(JNIEnv* env, jclass, jlong handle) {
+  std::vector<jlong> out;
+  for (const uvc_processing_unit_t* pu = uvc_get_processing_units(FromHandle(handle)->devh); pu; pu = pu->next) {
+    out.push_back(pu->bUnitID);
+    out.push_back(static_cast<jlong>(pu->bmControls));
+  }
+  jlongArray arr = env->NewLongArray(static_cast<jsize>(out.size()));
+  env->SetLongArrayRegion(arr, 0, static_cast<jsize>(out.size()), out.data());
+  return arr;
+}
+
+// Extension units as 25-byte records: unitId, bmControls (8 bytes LE), GUID (16 bytes as in the descriptor).
+JNIEXPORT jbyteArray JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeGetExtensionUnits(JNIEnv* env, jclass, jlong handle) {
+  std::vector<jbyte> out;
+  for (const uvc_extension_unit_t* xu = uvc_get_extension_units(FromHandle(handle)->devh); xu; xu = xu->next) {
+    out.push_back(static_cast<jbyte>(xu->bUnitID));
+    for (int i = 0; i < 8; ++i) out.push_back(static_cast<jbyte>((xu->bmControls >> (8 * i)) & 0xFF));
+    for (int i = 0; i < 16; ++i) out.push_back(static_cast<jbyte>(xu->guidExtensionCode[i]));
+  }
+  jbyteArray arr = env->NewByteArray(static_cast<jsize>(out.size()));
+  env->SetByteArrayRegion(arr, 0, static_cast<jsize>(out.size()), out.data());
+  return arr;
+}
+
+// GET_* request for a 1-4 byte control. Returns the raw little-endian value as
+// an unsigned number, or a negative libusb/uvc error.
+JNIEXPORT jlong JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeGetCtrl(JNIEnv*, jclass, jlong handle, jint unit, jint selector,
+                                               jint len, jint req) {
+  if (len < 1 || len > 4) return UVC_ERROR_INVALID_PARAM;
+  uint8_t buf[4] = {0, 0, 0, 0};
+  int rc = ControlRequest(FromHandle(handle), true, unit, selector, buf, len, req);
+  if (rc < 0) return rc;
+  if (rc != len) return UVC_ERROR_OTHER;
+  uint32_t value = 0;
+  for (int i = 0; i < len; ++i) value |= static_cast<uint32_t>(buf[i]) << (8 * i);
+  return static_cast<jlong>(value);
+}
+
+// SET_CUR for a 1-4 byte control. Returns 0 or a negative libusb/uvc error.
+JNIEXPORT jint JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeSetCtrl(JNIEnv*, jclass, jlong handle, jint unit, jint selector,
+                                               jint len, jint value) {
+  if (len < 1 || len > 4) return UVC_ERROR_INVALID_PARAM;
+  uint8_t buf[4];
+  for (int i = 0; i < 4; ++i) buf[i] = static_cast<uint8_t>((static_cast<uint32_t>(value) >> (8 * i)) & 0xFF);
+  int rc = ControlRequest(FromHandle(handle), false, unit, selector, buf, len, UVC_SET_CUR);
+  return rc < 0 ? rc : 0;
+}
+
+// Raw GET_* for any control (e.g. vendor extension units). Length comes from GET_LEN.
+// Returns null on error.
+JNIEXPORT jbyteArray JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeGetCtrlBytes(JNIEnv* env, jclass, jlong handle, jint unit,
+                                                    jint selector, jint req) {
+  Session* s = FromHandle(handle);
+  uint8_t len_buf[2] = {0, 0};
+  if (ControlRequest(s, true, unit, selector, len_buf, 2, UVC_GET_LEN) != 2) return nullptr;
+  int len = len_buf[0] | (len_buf[1] << 8);
+  if (len <= 0) return nullptr;
+  std::vector<uint8_t> data(static_cast<size_t>(len));
+  int rc = ControlRequest(s, true, unit, selector, data.data(), len, req);
+  if (rc < 0) return nullptr;
+  jbyteArray arr = env->NewByteArray(rc);
+  env->SetByteArrayRegion(arr, 0, rc, reinterpret_cast<const jbyte*>(data.data()));
+  return arr;
+}
+
+// Raw SET_CUR for any control. Returns 0 or a negative libusb/uvc error.
+JNIEXPORT jint JNICALL
+Java_dev_borescope_uvc_UvcNative_nativeSetCtrlBytes(JNIEnv* env, jclass, jlong handle, jint unit,
+                                                    jint selector, jbyteArray data) {
+  jsize len = env->GetArrayLength(data);
+  std::vector<uint8_t> buf(static_cast<size_t>(len));
+  env->GetByteArrayRegion(data, 0, len, reinterpret_cast<jbyte*>(buf.data()));
+  int rc = ControlRequest(FromHandle(handle), false, unit, selector, buf.data(), len, UVC_SET_CUR);
+  return rc < 0 ? rc : 0;
 }
 
 // Returns 0 on success, a negative uvc_error_t otherwise.
@@ -344,7 +465,5 @@ Java_dev_borescope_uvc_UvcNative_nativeClose(JNIEnv* env, jclass, jlong handle) 
   LOGI("Closed UVC device");
 }
 
-// TODO: standard controls (brightness, contrast, ...) via uvc_get/set_* in ctrl-gen.c
-// TODO: vendor extension units (e.g. LED control) via uvc_get_ctrl / uvc_set_ctrl
 
 }  // extern "C"

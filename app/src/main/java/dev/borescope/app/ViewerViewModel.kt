@@ -12,6 +12,7 @@ import dev.borescope.app.capture.MjpegFrames
 import dev.borescope.app.capture.PhotoSaver
 import dev.borescope.app.capture.VideoRecorder
 import dev.borescope.app.frame.FrameDecoder
+import dev.borescope.uvc.UvcControl
 import dev.borescope.uvc.UvcFormat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.asCoroutineDispatcher
@@ -43,6 +44,7 @@ class ViewerViewModel(app: Application) : AndroidViewModel(app) {
     val rotation = MutableStateFlow(0f)
     val mirrored = MutableStateFlow(false)
     val showInfo = MutableStateFlow(false)
+    val showControls = MutableStateFlow(false)
 
     /** Set by [takePhoto]; the next frame is saved (frame buffers are reused, so we can't look back). */
     @Volatile private var photoRequested = false
@@ -79,6 +81,8 @@ class ViewerViewModel(app: Application) : AndroidViewModel(app) {
     fun retry() = controller.retry()
     fun onUsbDeviceAttached() = controller.deviceAttached()
     fun selectFormat(format: UvcFormat) = controller.selectFormat(format)
+    fun setControl(control: UvcControl, value: Int) = controller.setControl(control, value)
+    fun resetControls() = controller.resetControls()
 
     // Native frame thread. Decoding here is fine: libuvc drops frames rather
     // than queueing them if we fall behind. [data] is only valid during the call.
@@ -146,7 +150,15 @@ class ViewerViewModel(app: Application) : AndroidViewModel(app) {
 
     fun toggleMirror() { mirrored.value = !mirrored.value }
 
-    fun toggleInfo() { showInfo.value = !showInfo.value }
+    fun toggleInfo() {
+        showInfo.value = !showInfo.value
+        if (showInfo.value) showControls.value = false
+    }
+
+    fun toggleControls() {
+        showControls.value = !showControls.value
+        if (showControls.value) showInfo.value = false
+    }
 
     override fun onCleared() {
         // viewModelScope is already cancelled; finish any recording on a plain thread.

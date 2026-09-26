@@ -1,6 +1,8 @@
 package dev.borescope.app.camera
 
 import dev.borescope.uvc.CameraDevice
+import dev.borescope.uvc.ControlValue
+import dev.borescope.uvc.UvcControl
 import dev.borescope.uvc.FrameListener
 import dev.borescope.uvc.UvcFormat
 import kotlinx.coroutines.CompletableDeferred
@@ -18,6 +20,28 @@ class FakeDevice(
     var rejects: Set<UvcFormat> = emptySet(),
 ) : CameraDevice {
     override val diagnostics = "DEVICE CONFIGURATION (fake)"
+
+    /** The camera's controls; [setControl] updates `current`. */
+    val controls = linkedMapOf(
+        UvcControl.BRIGHTNESS to ControlValue(UvcControl.BRIGHTNESS, -64, 64, 1, 0, 0),
+        UvcControl.WHITE_BALANCE_AUTO to ControlValue(UvcControl.WHITE_BALANCE_AUTO, 0, 1, 1, 1, 1),
+        UvcControl.WHITE_BALANCE to ControlValue(UvcControl.WHITE_BALANCE, 2800, 6500, 10, 4600, 4600),
+    )
+    val setCalls = mutableListOf<Pair<UvcControl, Int>>()
+    var refusedControls: Set<UvcControl> = emptySet()
+    var readControlsError: Exception? = null
+
+    override fun readControls(): List<ControlValue> {
+        readControlsError?.let { throw it }
+        return controls.values.toList()
+    }
+
+    override fun setControl(control: UvcControl, value: Int) {
+        setCalls += control to value
+        if (control in refusedControls) throw IllegalStateException("Camera refused ${control.label} = $value")
+        val c = controls.getValue(control)
+        controls[control] = c.copy(current = value.coerceIn(c.min, c.max))
+    }
     var streamingFormat: UvcFormat? = null
     var closeCount = 0
     private var listener: FrameListener? = null

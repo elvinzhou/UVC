@@ -93,6 +93,61 @@ Never commit a keystore.
 5. Decline permission once: "Grant USB permission" button, no dialog loop on resume.
 6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
 7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
+8. Record 30 s with rotation + mirror on; play it back; unplug mid-recording → file still plays.
+9. ⚙ panel: move each slider and watch the picture respond; toggle auto white balance; Reset.
+10. Photo with rotation/mirror: Google Photos shows it as on screen; opens in a desktop viewer.
+
+**Phase 3: video recording** — DONE in code, **not yet verified on hardware**
+- [x] `capture/VideoRecorder`: MediaCodec H.264 via input Surface + `lockHardwareCanvas`,
+      drain thread → MediaMuxer → MediaStore Movies/Borescope (IS_PENDING until finished,
+      deleted if empty); `VideoSpec` fits ≤1080p, 16-aligned, ~0.15 bpp (unit-tested)
+- [x] Orientation hint from UI rotation; record button + REC timer; recording stops
+      automatically when the stream ends (unplug, background, stall)
+- Hardware check: record 30 s, play it back in Photos; unplug mid-recording → file is still valid
+
+**Phase 4: polish and performance** — DONE in code, **not yet verified on hardware**
+- [x] Format picker: tap a mode in the ⓘ panel → `CameraController.selectFormat` (reverts with a
+      notice if the camera refuses; remembered across reconnects; tested)
+- [x] Mirror toggle; pinch zoom + pan (view-only), double-tap resets (`ui/Viewport.kt`)
+- [x] Rotation no longer clips at 90°/270° (`fitRotated` lays out with swapped constraints)
+- [x] Photos carry on-screen rotation/mirror as EXIF orientation, and missing MJPEG Huffman
+      tables are inserted (`capture/MjpegFrames`, pixel-identical round trip tested with ImageIO)
+- [x] No per-frame allocation: one reusable JNI byte[] (`FrameListener` gets `length`;
+      data valid only during the call) and a 3-bitmap decode ring (`FrameDecoder`)
+- [x] Adaptive launcher icon
+- Hardware check: rotate+mirror a photo and confirm Photos shows it as on screen; format
+  picker switches without reconnecting; watch GC in `adb logcat` while streaming
+
+**Phase 5: camera controls** — DONE in code, **not yet verified on hardware**
+- [x] Processing Unit controls (`UvcControl`: brightness, contrast, hue, saturation, sharpness,
+      gamma, white balance ± auto, backlight, gain, anti-flicker, auto hue/contrast) read from
+      `bmControls` (UVC spec bit order), with GET_MIN/MAX/RES/DEF/CUR; sliders/switches in the
+      ⚙ panel; sliders lock while their auto switch is on; Reset restores defaults (autos first)
+- [x] Controller coalesces slider drags (latest value per control), re-reads after each change,
+      and a refused set is a notice, not an error; controls never block streaming
+- [x] Control transfers go through our own `ControlRequest` with a 1 s timeout (libuvc's
+      `uvc_get/set_ctrl` use timeout 0 = forever)
+- [x] Extension units listed in the ⓘ panel (GUID + selectors); raw
+      `read/writeExtensionControl` API ready for the LED work
+- [ ] LED control: needs the scope. List its XUs in the ⓘ panel, then probe their selectors
+      with `readExtensionControl` (many cheap scopes use a hardware LED knob instead)
+- Known risk: libuvc's stream negotiation (probe/commit) still uses timeout 0; a camera that
+  never answers there would hang the camera thread. Fixing it means patching libuvc.
+
+### Hardware verification checklist (do this with the real scope)
+1. `adb logcat -s uvc-native` on first plug-in: the descriptor dump should list an MJPEG
+   format. Paste it into this file under a new "Our scope" heading (VID:PID, formats,
+   iso vs bulk, extension units). If there is no MJPEG, YUYV should still show a picture.
+2. First light: picture appears; info panel (ⓘ) highlights the chosen mode.
+3. Background/foreground 10× quickly: no crash, no second permission prompt, picture returns.
+4. Pull the cable mid-stream 5×: no crash or ANR, "Plug in a USB borescope" appears;
+   re-plug → "Open with Borescope?" → picture returns.
+5. Decline permission once: "Grant USB permission" button, no dialog loop on resume.
+6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
+7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
+8. Record 30 s with rotation + mirror on; play it back; unplug mid-recording → file still plays.
+9. ⚙ panel: move each slider and watch the picture respond; toggle auto white balance; Reset.
+10. Photo with rotation/mirror: Google Photos shows it as on screen; opens in a desktop viewer.
 
 **Phase 3: video recording** — DONE in code, **not yet verified on hardware**
 - [x] `capture/VideoRecorder`: MediaCodec H.264 via input Surface + `lockHardwareCanvas`,
