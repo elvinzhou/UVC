@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Borescope: a camera head on a curved cable. 108dp adaptive-icon canvas, 66dp safe zone. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Cable -->
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="5"
+        android:strokeLineCap="round"
+        android:pathData="M34,78 C34,58 46,54 58,50" />
+    <!-- Camera head -->
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M54,42 L66,34 A4,4 0 0 1 71,35 L79,47 A4,4 0 0 1 78,52 L66,60 A4,4 0 0 1 61,59 L53,47 A4,4 0 0 1 54,42 Z" />
+    <!-- Lens -->
+    <path
+        android:fillColor="#FFC107"
+        android:pathData="M72,41 m-4,0 a4,4 0 1 0 8,0 a4,4 0 1 0 -8,0" />
+</vector>

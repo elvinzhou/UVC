@@ -1,0 +1,81 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build, test, lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - uses: ./.github/actions/android-setup
+
+      - name: Set CI version name
+        run: echo "VERSION_NAME=0.1.0-ci.${VERSION_CODE}+${GITHUB_SHA::7}" >> "$GITHUB_ENV"
+
+      - name: Build debug APK, run unit tests, run lint
+        run: ./gradlew assembleDebug testDebugUnitTest lintDebug --stacktrace
+
+      - name: Upload debug APK
+        uses: actions/upload-artifact@v7
+        with:
+          name: borescope-debug-apk
+          path: app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            */build/reports/
+            */build/test-results/
+          if-no-files-found: ignore
+
+  # Continuous delivery: every green push to main refreshes a "nightly"
+  # pre-release with the latest debug APK, ready to sideload.
+  nightly:
+    name: Publish nightly pre-release
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: nightly-release
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: borescope-debug-apk
+          path: dist
+
+      - name: Replace nightly release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          mv dist/*.apk "dist/borescope-nightly-${GITHUB_SHA::7}.apk"
+          gh release delete nightly --cleanup-tag --yes || true
+          gh release create nightly dist/*.apk \
+            --prerelease \
+            --target "$GITHUB_SHA" \
+            --title "Nightly (${GITHUB_SHA::7})" \
+            --notes "Debug build of ${GITHUB_SHA} from main. Replaced on every push; not for distribution."

@@ -1,0 +1,27 @@
+name: Android build setup
+description: JDK 17, Gradle (cached, wrapper-validated), NDK and CMake pinned to the versions in uvc/build.gradle.kts.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v6
+      with:
+        distribution: temurin
+        java-version: 17
+
+    # Caches Gradle state and validates gradle-wrapper.jar checksums.
+    - uses: gradle/actions/setup-gradle@v6
+
+    # Keep in sync with ndkVersion and the cmake version in uvc/build.gradle.kts.
+    - name: Install NDK and CMake
+      shell: bash
+      run: |
+        yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses > /dev/null || true
+        "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install \
+          "ndk;28.0.13004108" "cmake;3.22.1" > /dev/null
+
+    # versionCode = commit count, so it only grows along main and is the same
+    # for every workflow that builds a given commit. Needs fetch-depth: 0.
+    - name: Compute version
+      shell: bash
+      run: echo "VERSION_CODE=$(git rev-list --count HEAD)" >> "$GITHUB_ENV"

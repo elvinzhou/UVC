@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Any device exposing a USB Video Class interface. -->
+    <usb-device class="14" />
+    <!-- Optional: narrow to your scope once you know its IDs (decimal, not hex).
+    <usb-device vendor-id="0000" product-id="0000" />
+    -->
+</resources>
