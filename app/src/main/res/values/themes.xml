@@ -1,0 +1,3 @@
+<resources>
+    <style name="Theme.Borescope" parent="android:Theme.Material.NoActionBar" />
+</resources>
