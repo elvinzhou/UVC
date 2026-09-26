@@ -53,6 +53,8 @@ Never commit a keystore.
 - Only `CameraController` touches `CameraDevice`, and only from its actor. Never call camera
   methods from the UI, and never make a `FrameListener` wait on the camera thread (stopping
   a stream joins the frame thread, so that deadlocks).
+- `FrameListener.onFrame(data, length, …)`: `data` is a reused buffer. Copy before keeping it.
+  Bitmaps from `FrameDecoder` are reused 3 frames later. Copy them before keeping them longer.
 - JNI returns format records as flat ints `[type, fourcc, width, height, fps]`; the stride
   is `UvcFormat.STRIDE` and must match `nativeGetFormats`.
 
@@ -100,11 +102,18 @@ Never commit a keystore.
       automatically when the stream ends (unplug, background, stall)
 - Hardware check: record 30 s, play it back in Photos; unplug mid-recording → file is still valid
 
-**Phase 4: polish and performance**
-- [ ] Format picker, mirror, pinch zoom
-- [ ] Fix rotation clipping at 90°/270° (`graphicsLayer` rotates after layout)
-- [ ] `inBitmap` reuse; pooled direct ByteBuffers instead of one `NewByteArray` per frame
-- [ ] App icon (lint `MissingApplicationIcon`)
+**Phase 4: polish and performance** — DONE in code, **not yet verified on hardware**
+- [x] Format picker: tap a mode in the ⓘ panel → `CameraController.selectFormat` (reverts with a
+      notice if the camera refuses; remembered across reconnects; tested)
+- [x] Mirror toggle; pinch zoom + pan (view-only), double-tap resets (`ui/Viewport.kt`)
+- [x] Rotation no longer clips at 90°/270° (`fitRotated` lays out with swapped constraints)
+- [x] Photos carry on-screen rotation/mirror as EXIF orientation, and missing MJPEG Huffman
+      tables are inserted (`capture/MjpegFrames`, pixel-identical round trip tested with ImageIO)
+- [x] No per-frame allocation: one reusable JNI byte[] (`FrameListener` gets `length`;
+      data valid only during the call) and a 3-bitmap decode ring (`FrameDecoder`)
+- [x] Adaptive launcher icon
+- Hardware check: rotate+mirror a photo and confirm Photos shows it as on screen; format
+  picker switches without reconnecting; watch GC in `adb logcat` while streaming
 
 **Phase 5: camera controls**
 - [ ] Standard UVC controls via libuvc `uvc_get/set_*`

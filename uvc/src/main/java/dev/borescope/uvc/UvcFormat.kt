@@ -52,10 +52,14 @@ data class UvcFormat(
 
 /**
  * Called on the native streaming thread for every complete frame.
- * For MJPEG, [data] is a complete JPEG image; for YUYV, packed 4:2:2 pixels.
- * Don't block here and never wait on the thread that stops streaming:
+ *
+ * The frame is the first [length] bytes of [data]: for MJPEG a complete JPEG
+ * image, for YUYV packed 4:2:2 pixels. [data] is reused for the next frame, so
+ * it's only valid during the call: copy anything you keep.
+ *
+ * Don't block here, and never wait on the thread that stops streaming:
  * stopping joins this thread.
  */
 fun interface FrameListener {
-    fun onFrame(data: ByteArray, width: Int, height: Int, type: Int)
+    fun onFrame(data: ByteArray, length: Int, width: Int, height: Int, type: Int)
 }

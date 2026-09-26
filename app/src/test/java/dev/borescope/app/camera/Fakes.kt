@@ -9,10 +9,13 @@ import kotlinx.coroutines.flow.MutableSharedFlow
 val MJPEG_480 = UvcFormat(UvcFormat.Type.MJPEG, 640, 480, 30, "MJPG")
 val MJPEG_720 = UvcFormat(UvcFormat.Type.MJPEG, 1280, 720, 30, "MJPG")
 val H264_1080 = UvcFormat(UvcFormat.Type.H264, 1920, 1080, 30, "H264")
+val YUYV_480 = UvcFormat(UvcFormat.Type.YUYV, 640, 480, 15, "YUY2")
 
 class FakeDevice(
     override val formats: List<UvcFormat> = listOf(MJPEG_480, MJPEG_720),
     private val startError: Exception? = null,
+    /** Formats the camera claims but refuses to stream. */
+    var rejects: Set<UvcFormat> = emptySet(),
 ) : CameraDevice {
     override val diagnostics = "DEVICE CONFIGURATION (fake)"
     var streamingFormat: UvcFormat? = null
@@ -25,6 +28,8 @@ class FakeDevice(
     override fun startStreaming(format: UvcFormat, listener: FrameListener) {
         check(!closed) { "startStreaming after close" }
         startError?.let { throw it }
+        check(!streaming) { "startStreaming while streaming" }
+        if (format in rejects) throw IllegalStateException("uvc error -51 for $format")
         streamingFormat = format
         this.listener = listener
     }
@@ -39,7 +44,7 @@ class FakeDevice(
     }
 
     fun emitFrame() {
-        checkNotNull(listener) { "not streaming" }.onFrame(byteArrayOf(1, 2, 3), 1280, 720, 0)
+        checkNotNull(listener) { "not streaming" }.onFrame(byteArrayOf(1, 2, 3), 3, 1280, 720, 0)
     }
 }
 

@@ -1,7 +1,7 @@
 package dev.borescope.app.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +17,14 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.FiberManualRecord
+import androidx.compose.material.icons.filled.Flip
 import androidx.compose.material.icons.filled.PhotoCamera
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FilledIconToggleButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -40,9 +42,6 @@ import kotlinx.coroutines.delay
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -50,26 +49,21 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.borescope.app.ViewerViewModel
 import dev.borescope.app.camera.CameraState
+import dev.borescope.uvc.UvcFormat
 
 @Composable
 fun ViewerScreen(vm: ViewerViewModel) {
     val state by vm.state.collectAsStateWithLifecycle()
     val frame by vm.frame.collectAsStateWithLifecycle()
     val rotation by vm.rotation.collectAsStateWithLifecycle()
+    val mirrored by vm.mirrored.collectAsStateWithLifecycle()
     val showInfo by vm.showInfo.collectAsStateWithLifecycle()
     val recordingSince by vm.recordingSince.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        frame?.let {
-            Image(
-                bitmap = it.asImageBitmap(),
-                contentDescription = "Borescope view",
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.fillMaxSize().graphicsLayer { rotationZ = rotation },
-            )
-        }
+        frame?.let { Viewport(it, rotation, mirrored) }
 
         StatusMessage(state, onRetry = vm::retry, modifier = Modifier.align(Alignment.Center))
 
@@ -87,7 +81,11 @@ fun ViewerScreen(vm: ViewerViewModel) {
         }
 
         if (showInfo) {
-            InfoPanel(state, Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp))
+            InfoPanel(
+                state,
+                onSelect = vm::selectFormat,
+                modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp),
+            )
         }
 
         Row(
@@ -97,6 +95,9 @@ fun ViewerScreen(vm: ViewerViewModel) {
         ) {
             FilledIconButton(onClick = vm::rotate) {
                 Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate")
+            }
+            FilledIconToggleButton(checked = mirrored, onCheckedChange = { vm.toggleMirror() }) {
+                Icon(Icons.Filled.Flip, contentDescription = "Mirror")
             }
             FilledIconButton(onClick = vm::takePhoto, enabled = frame != null) {
                 Icon(Icons.Filled.PhotoCamera, contentDescription = "Take photo")
@@ -179,9 +180,9 @@ private fun StatusMessage(state: CameraState, onRetry: () -> Unit, modifier: Mod
     }
 }
 
-/** Phase 1 debugging aid: what the camera advertises, straight from its descriptors. */
+/** What the camera advertises, straight from its descriptors. Tap a format to switch to it. */
 @Composable
-private fun InfoPanel(state: CameraState, modifier: Modifier) {
+private fun InfoPanel(state: CameraState, onSelect: (UvcFormat) -> Unit, modifier: Modifier) {
     Column(
         modifier
             .fillMaxWidth()
@@ -197,14 +198,22 @@ private fun InfoPanel(state: CameraState, modifier: Modifier) {
             Text("No camera open", color = Color.White)
             return@Column
         }
-        Text("Formats", color = Color.White, fontWeight = FontWeight.Bold)
+        Text("Formats (tap to switch)", color = Color.White, fontWeight = FontWeight.Bold)
         streaming.formats.forEach { f ->
             val active = f == streaming.format
             Text(
                 text = (if (active) "▶ " else "   ") + "$f  ${f.fourcc}" + if (f.isDisplayable) "" else "  (unsupported)",
-                color = if (active) MaterialTheme.colorScheme.primary else Color.White,
+                color = when {
+                    active -> MaterialTheme.colorScheme.primary
+                    f.isDisplayable -> Color.White
+                    else -> Color.Gray
+                },
                 fontFamily = FontFamily.Monospace,
                 style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable(enabled = f.isDisplayable && !active) { onSelect(f) }
+                    .padding(vertical = 6.dp),
             )
         }
         Text("Descriptors", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.padding(top = 8.dp))

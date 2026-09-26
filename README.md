@@ -21,8 +21,9 @@ borescope/
 │           ├── frame/                # FrameDecoder (MJPEG/YUYV), Yuyv converter
 │           ├── ui/ViewerScreen.kt
 │           └── capture/
-│               ├── PhotoSaver.kt     # raw MJPEG frame -> MediaStore, lossless
-│               └── VideoRecorder.kt  # TODO: MediaCodec H.264 + MediaMuxer
+│               ├── MjpegFrames.kt    # MJPEG frame -> JPEG file (DHT + EXIF), no re-encode
+│               ├── PhotoSaver.kt     # JPEG -> MediaStore Pictures/Borescope
+│               └── VideoRecorder.kt  # MediaCodec H.264 + MediaMuxer -> Movies/Borescope
 ├── uvc/                          # Reusable UVC library module
 │   └── src/main/
 │       ├── java/dev/borescope/uvc/
@@ -92,8 +93,8 @@ Then add the vendor/product IDs (decimal) to `device_filter.xml`.
       (awaiting first light on the real scope)
 - [x] 2. Camera state machine on a dedicated thread, safe hot-unplug, reconnect
       without re-prompting, stall watchdog (awaiting on-device verification)
-- [ ] 3. Video recording (`capture/VideoRecorder.kt`)
-- [ ] 4. Format picker, mirror, zoom, `inBitmap` reuse for less GC
+- [x] 3. Video recording (`capture/VideoRecorder.kt`)
+- [x] 4. Format picker, mirror, zoom, rotation fit, EXIF photos, buffer/bitmap reuse
 - [ ] 5. UVC controls; vendor extension unit for LEDs if applicable
 
 ## Known sharp edges

@@ -2,6 +2,7 @@ package dev.borescope.app.camera
 
 import dev.borescope.uvc.FrameListener
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceTimeBy
@@ -21,7 +22,7 @@ class CameraControllerTest {
     private fun TestScope.newController(stallTimeoutMs: Long = 5_000) = CameraController(
         source = source,
         dispatcher = StandardTestDispatcher(testScheduler),
-        frames = FrameListener { _, _, _, _ -> framesDelivered++ },
+        frames = FrameListener { _, _, _, _, _ -> framesDelivered++ },
         stallTimeoutMs = stallTimeoutMs,
         clock = { testScheduler.currentTime },
     ).also { runCurrent() }   // let it subscribe to attach/detach events
@@ -363,6 +364,86 @@ class CameraControllerTest {
         }
         assertTrue(c.current is CameraState.Streaming)
         assertFalse(source.opened.last().closed)
+    }
+
+    // --- Format selection ---------------------------------------------------
+
+    private fun TestScope.streamingWith(c: CameraController, vararg formats: dev.borescope.uvc.UvcFormat): FakeDevice {
+        source.plugIn("cam", permission = true)
+        source.nextDevice = { FakeDevice(formats = formats.toList()) }
+        c.start(); runCurrent()
+        return source.opened.last()
+    }
+
+    @Test
+    fun selectFormat_switchesTheStream() = controllerTest { c ->
+        val cam = streamingWith(c, MJPEG_480, MJPEG_720, YUYV_480)
+        c.selectFormat(YUYV_480); runCurrent()
+        assertEquals(YUYV_480, cam.streamingFormat)
+        assertEquals(YUYV_480, (c.current as CameraState.Streaming).format)
+        assertEquals(1, source.opened.size)   // same device, no reopen
+    }
+
+    @Test
+    fun selectFormat_ignoresFormatsTheCameraDoesNotOffer() = controllerTest { c ->
+        val cam = streamingWith(c, MJPEG_480, MJPEG_720)
+        c.selectFormat(YUYV_480); runCurrent()
+        assertEquals(MJPEG_720, cam.streamingFormat)
+    }
+
+    @Test
+    fun selectFormat_refusesUndisplayableWithNotice() = runTest {
+        val c = newController()
+        val notices = mutableListOf<String>()
+        val collector = backgroundScope.launch(StandardTestDispatcher(testScheduler)) { c.notices.collect { notices += it } }
+        val cam = streamingWith(c, MJPEG_720, H264_1080)
+        c.selectFormat(H264_1080); runCurrent()
+        assertEquals(MJPEG_720, cam.streamingFormat)
+        assertEquals(listOf("H264 1920x1080@30 can't be displayed"), notices)
+        collector.cancel(); c.shutdown(); runCurrent()
+    }
+
+    @Test
+    fun selectFormat_rejectedByCamera_revertsWithNotice() = runTest {
+        val c = newController()
+        val notices = mutableListOf<String>()
+        backgroundScope.launch(StandardTestDispatcher(testScheduler)) { c.notices.collect { notices += it } }
+        val cam = streamingWith(c, MJPEG_480, MJPEG_720)
+        cam.rejects = setOf(MJPEG_480)
+        c.selectFormat(MJPEG_480); runCurrent()
+
+        assertEquals(MJPEG_720, cam.streamingFormat)
+        assertEquals(MJPEG_720, (c.current as CameraState.Streaming).format)
+        assertEquals(1, notices.size)
+        c.shutdown(); runCurrent()
+    }
+
+    @Test
+    fun selectFormat_bothRejected_closesWithError() = controllerTest { c ->
+        val cam = streamingWith(c, MJPEG_480, MJPEG_720)
+        cam.rejects = setOf(MJPEG_480, MJPEG_720)
+        c.selectFormat(MJPEG_480); runCurrent()
+        assertTrue(cam.closed)
+        assertTrue(c.current is CameraState.Error)
+    }
+
+    @Test
+    fun selectFormat_isRememberedAcrossReconnects() = controllerTest { c ->
+        streamingWith(c, MJPEG_480, MJPEG_720)
+        c.selectFormat(MJPEG_480); runCurrent()
+        c.stop(); runCurrent()
+        c.start(); runCurrent()
+        assertEquals(MJPEG_480, source.opened.last().streamingFormat)
+    }
+
+    @Test
+    fun selectFormat_resetsStallWatchdog() = controllerTest { c ->
+        val cam = streamingWith(c, MJPEG_480, MJPEG_720)
+        advanceTimeBy(4_000); runCurrent()
+        c.selectFormat(MJPEG_480); runCurrent()
+        advanceTimeBy(3_000); runCurrent()   // 7 s since start, 3 s since the switch
+        assertTrue(c.current is CameraState.Streaming)
+        assertFalse(cam.closed)
     }
 
     // --- Shutdown -----------------------------------------------------------

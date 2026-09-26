@@ -12,7 +12,9 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.isActive
@@ -66,6 +68,7 @@ class CameraController(
         data object Attached : Command
         data class Detached(val id: String) : Command
         data class Stalled(val session: Int) : Command
+        data class SelectFormat(val format: UvcFormat) : Command
         data object Shutdown : Command
     }
 
@@ -74,6 +77,10 @@ class CameraController(
 
     private val _state = MutableStateFlow<CameraState>(CameraState.Idle)
     val state: StateFlow<CameraState> = _state.asStateFlow()
+
+    private val _notices = MutableSharedFlow<String>(extraBufferCapacity = 8)
+    /** Non-fatal problems worth telling the user about (e.g. a rejected format). */
+    val notices: SharedFlow<String> = _notices
 
     /** What the UI wants; written by callers, read by the actor. */
     @Volatile private var wanted = false
@@ -84,12 +91,20 @@ class CameraController(
     /** Written from the native frame thread, read by the watchdog. */
     @Volatile private var lastFrameAt = 0L
 
+    /** Forwards frames and feeds the stall watchdog. */
+    private val frameTap = FrameListener { data, length, width, height, type ->
+        lastFrameAt = clock()
+        frames.onFrame(data, length, width, height, type)
+    }
+
     // Confined to the actor.
     private var device: CameraDevice? = null
     private var deviceId: String? = null
     private var session = 0
     private var permissionDeclined = false
     private var watchdog: Job? = null
+    /** The user's pick from the format list; reused on reconnect when the camera offers it. */
+    private var chosenFormat: UvcFormat? = null
 
     init {
         scope.launch { for (command in commands) handleSafely(command) }
@@ -113,6 +128,11 @@ class CameraController(
     /** User asked to try again: re-prompts for permission if needed. */
     fun retry() {
         commands.trySend(Command.Retry)
+    }
+
+    /** Switches the running stream to [format] (one of [CameraState.Streaming.formats]). */
+    fun selectFormat(format: UvcFormat) {
+        commands.trySend(Command.SelectFormat(format))
     }
 
     /** A USB_DEVICE_ATTACHED intent reached the activity (permission is granted with it). */
@@ -167,6 +187,7 @@ class CameraController(
                 disconnect()
                 _state.value = CameraState.Error("No video from the camera for ${stallTimeoutMs / 1000} s")
             }
+            is Command.SelectFormat -> switchFormat(command.format)
             Command.Shutdown -> {
                 disconnect()
                 _state.value = CameraState.Idle
@@ -210,14 +231,11 @@ class CameraController(
         val opened = source.open(id)
         try {
             val formats = opened.formats
-            val format = UvcFormat.preferred(formats)
+            val format = chosenFormat?.takeIf { it in formats } ?: UvcFormat.preferred(formats)
                 ?: error("No supported video format. Camera offers: ${formats.joinToString().ifEmpty { "nothing" }}")
             val thisSession = ++session
             lastFrameAt = clock()
-            opened.startStreaming(format) { data, width, height, type ->
-                lastFrameAt = clock()
-                frames.onFrame(data, width, height, type)
-            }
+            opened.startStreaming(format, frameTap)
             device = opened
             deviceId = id
             _state.value = CameraState.Streaming(format, formats, opened.diagnostics)
@@ -225,6 +243,27 @@ class CameraController(
         } catch (e: Exception) {
             if (device !== opened) closeQuietly(opened)
             throw e
+        }
+    }
+
+    private fun switchFormat(format: UvcFormat) {
+        val open = device ?: return
+        val current = _state.value as? CameraState.Streaming ?: return
+        if (format == current.format || format !in current.formats) return
+        if (!format.isDisplayable) {
+            _notices.tryEmit("$format can't be displayed")
+            return
+        }
+        open.stopStreaming()
+        lastFrameAt = clock()
+        try {
+            open.startStreaming(format, frameTap)
+            chosenFormat = format
+            _state.value = current.copy(format = format)
+        } catch (e: Exception) {
+            _notices.tryEmit("Camera rejected $format; staying on ${current.format}")
+            // Back to what worked. If even that fails, handleSafely reports it.
+            open.startStreaming(current.format, frameTap)
         }
     }
 

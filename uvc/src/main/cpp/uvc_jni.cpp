@@ -59,7 +59,13 @@ struct Session {
 
   std::mutex listener_mutex;
   jobject listener = nullptr;     // global ref to FrameListener
-  jmethodID on_frame = nullptr;   // void onFrame(byte[] data, int w, int h, int type)
+  jmethodID on_frame = nullptr;   // void onFrame(byte[] data, int length, int w, int h, int type)
+
+  // One Java byte[] reused for every frame (grown when a frame doesn't fit),
+  // instead of allocating per frame. Safe because onFrame is synchronous:
+  // Kotlin must copy anything it keeps. Guarded by listener_mutex.
+  jbyteArray frame_buf = nullptr;
+  jsize frame_cap = 0;
 };
 
 static Session* FromHandle(jlong h) { return reinterpret_cast<Session*>(h); }
@@ -146,13 +152,21 @@ static void FrameCallback(uvc_frame_t* frame, void* user) {
   std::lock_guard<std::mutex> lock(s->listener_mutex);
   if (!s->listener) return;
 
-  // TODO(perf): allocation per frame is fine for a first milestone at 30 fps.
-  // Later: a small pool of direct ByteBuffers handed to Kotlin and returned after use.
-  jbyteArray arr = env->NewByteArray(static_cast<jsize>(frame->data_bytes));
-  if (!arr) { env->ExceptionClear(); return; }
-  env->SetByteArrayRegion(arr, 0, static_cast<jsize>(frame->data_bytes),
-                          static_cast<const jbyte*>(frame->data));
-  env->CallVoidMethod(s->listener, s->on_frame, arr,
+  auto length = static_cast<jsize>(frame->data_bytes);
+  if (length > s->frame_cap) {
+    if (s->frame_buf) env->DeleteGlobalRef(s->frame_buf);
+    s->frame_buf = nullptr;
+    s->frame_cap = 0;
+    jsize capacity = length + length / 4;   // headroom: MJPEG frame sizes vary
+    jbyteArray local = env->NewByteArray(capacity);
+    if (!local) { env->ExceptionClear(); return; }
+    s->frame_buf = static_cast<jbyteArray>(env->NewGlobalRef(local));
+    env->DeleteLocalRef(local);
+    if (!s->frame_buf) return;
+    s->frame_cap = capacity;
+  }
+  env->SetByteArrayRegion(s->frame_buf, 0, length, static_cast<const jbyte*>(frame->data));
+  env->CallVoidMethod(s->listener, s->on_frame, s->frame_buf, length,
                       static_cast<jint>(frame->width), static_cast<jint>(frame->height),
                       TypeFor(frame->frame_format));
   if (env->ExceptionCheck()) {
@@ -160,7 +174,6 @@ static void FrameCallback(uvc_frame_t* frame, void* user) {
     env->ExceptionDescribe();
     env->ExceptionClear();
   }
-  env->DeleteLocalRef(arr);
 }
 
 static void ClearListener(JNIEnv* env, Session* s) {
@@ -168,6 +181,11 @@ static void ClearListener(JNIEnv* env, Session* s) {
   if (s->listener) {
     env->DeleteGlobalRef(s->listener);
     s->listener = nullptr;
+  }
+  if (s->frame_buf) {
+    env->DeleteGlobalRef(s->frame_buf);
+    s->frame_buf = nullptr;
+    s->frame_cap = 0;
   }
 }
 
@@ -276,7 +294,7 @@ Java_dev_borescope_uvc_UvcNative_nativeStart(JNIEnv* env, jclass, jlong handle, 
     std::lock_guard<std::mutex> lock(s->listener_mutex);
     s->listener = env->NewGlobalRef(listener);
     jclass cls = env->GetObjectClass(listener);
-    s->on_frame = env->GetMethodID(cls, "onFrame", "([BIII)V");
+    s->on_frame = env->GetMethodID(cls, "onFrame", "([BIIII)V");
     env->DeleteLocalRef(cls);
   }
 
