@@ -1,12 +1,12 @@
 # Known-good baseline. Android Studio's upgrade assistant can bump these.
 [versions]
-agp = "8.9.1"
-kotlin = "2.1.20"
-composeBom = "2025.04.00"
+agp = "9.4.1"
+kotlin = "2.4.20"
+composeBom = "2026.09.00"
 activityCompose = "1.10.1"
-coreKtx = "1.16.0"
+coreKtx = "1.19.1"
 lifecycle = "2.8.7"
-coroutines = "1.10.2"
+coroutines = "1.11.0"
 junit = "4.13.2"
 
 [libraries]
