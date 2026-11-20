@@ -67,6 +67,8 @@ Native logs: `adb logcat -s uvc-native`.
 ## How it works
 
 1. `UsbCameraManager` finds a device with a Video-class interface and gets permission.
+   Android only grants USB access to video-class devices to apps that also hold the
+   runtime **CAMERA** permission, so `MainActivity` requests that first.
 2. `UvcCamera.open` passes the `UsbDeviceConnection` file descriptor to native code.
 3. Native code creates a libusb context with `LIBUSB_OPTION_NO_DEVICE_DISCOVERY`
    (apps can't enumerate `/dev/bus/usb`), wraps the fd with `uvc_wrap()`, and runs
