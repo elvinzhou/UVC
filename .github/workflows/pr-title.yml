@@ -1,0 +1,24 @@
+name: PR title
+
+# The PR title becomes the squash-commit subject on main, and the release version is derived
+# from it (feat: -> minor, fix: -> patch, type!: -> major). Keep it in Conventional Commit form.
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  title:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check Conventional Commit title
+        env:
+          TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          re='^(feat|fix|perf|revert|refactor|docs|test|build|ci|chore|style)(\([^)]+\))?!?: .+'
+          if [[ ! $TITLE =~ $re ]]; then
+            echo "::error::PR title must look like 'feat: add X', 'fix(ui): Y' or 'feat!: breaking change'. Got: $TITLE"
+            exit 1
+          fi

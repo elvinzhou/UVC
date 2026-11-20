@@ -1,19 +1,52 @@
 name: Release
 
-# Push a tag like v0.2.0 to build a release APK + app bundle (.aab) and publish a GitHub Release.
+# Releases happen automatically when a change that warrants one lands on main
+# (see .github/scripts/next-version.sh: feat -> minor, fix/perf/revert -> patch,
+# breaking -> major). Pushing a tag like v0.2.0 by hand still works too.
 on:
   push:
+    branches: [main]
     tags: ["v*"]
 
 permissions:
   contents: write
 
+# Never run two releases at once, or they could pick the same version.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
+  version:
+    name: Decide version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0 # full history and tags
+
+      - id: v
+        run: |
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif git describe --tags --exact-match HEAD >/dev/null 2>&1; then
+            version="" # this commit is already released (e.g. a re-run)
+          else
+            version=$(.github/scripts/next-version.sh)
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "Next version: ${version:-none (no release-worthy commits)}" >> "$GITHUB_STEP_SUMMARY"
+
   release:
+    needs: version
+    if: needs.version.outputs.version != ''
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
       HAS_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+      VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -23,7 +56,7 @@ jobs:
       - uses: ./.github/actions/android-setup
 
       - name: Set release version name
-        run: echo "VERSION_NAME=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+        run: echo "VERSION_NAME=$VERSION" >> "$GITHUB_ENV"
 
       - name: Decode signing keystore
         if: env.HAS_KEYSTORE == 'true'
@@ -40,23 +73,29 @@ jobs:
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
         run: ./gradlew testReleaseUnitTest lintRelease assembleRelease bundleRelease assembleDebug --stacktrace
 
-      - name: Collect APKs
+      - name: Collect artifacts
         run: |
           mkdir dist
           if [ "$HAS_KEYSTORE" = "true" ]; then
-            cp app/build/outputs/apk/release/app-release.apk "dist/borescope-${GITHUB_REF_NAME}.apk"
-            cp app/build/outputs/bundle/release/app-release.aab "dist/borescope-${GITHUB_REF_NAME}.aab"
+            cp app/build/outputs/apk/release/app-release.apk "dist/borescope-v${VERSION}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "dist/borescope-v${VERSION}.aab"
           else
             echo "::warning::No signing secrets set; publishing the debug APK only. See CLAUDE.md > Release signing."
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/borescope-${GITHUB_REF_NAME}-debug.apk"
+          cp app/build/outputs/apk/debug/app-debug.apk "dist/borescope-v${VERSION}-debug.apk"
 
+      # On a branch push this creates the tag at the built commit; on a tag push it exists already.
       - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/* \
-            --title "Borescope ${GITHUB_REF_NAME}" \
+          if [ "$GITHUB_REF_TYPE" = "tag" ]; then
+            target=(--verify-tag)
+          else
+            target=(--target "$GITHUB_SHA")
+          fi
+          gh release create "v${VERSION}" dist/* \
+            --title "Borescope v${VERSION}" \
             --generate-notes \
-            --verify-tag
+            "${target[@]}"

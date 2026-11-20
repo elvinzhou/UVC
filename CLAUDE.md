@@ -29,9 +29,14 @@ git submodule update --init --depth 1        # libusb v1.0.30, libuvc v0.0.8
 - `workflows/ci.yml`: every push and PR runs build + unit tests + lint and
   uploads the debug APK and reports as artifacts. Green pushes to `main`
   replace the `nightly` pre-release with the latest debug APK.
-- `workflows/release.yml`: pushing tag `vX.Y.Z` builds, tests and lints the
-  release, then publishes a GitHub Release with the APK and the app bundle (`.aab`, for Play
-  upload). Both are signed when the repository secrets exist; otherwise only the debug APK is attached.
+- `workflows/release.yml`: every push to `main` runs `scripts/next-version.sh` over the commits since
+  the last `v*` tag (Conventional Commits: `feat:` minor, `fix:`/`perf:`/`revert:` patch, `!:` or
+  `BREAKING CHANGE` major — minor while the major is 0; docs/chore/ci/test/build/style/refactor never
+  release). If a release is due it builds, tests, lints and publishes a GitHub Release (APK + `.aab`,
+  signed when the repository secrets exist, else the debug APK only) and creates the tag. A manual
+  `vX.Y.Z` tag push still works. The first release is `0.1.0` once any release-worthy commit lands.
+- `workflows/pr-title.yml`: PR titles must be Conventional Commits, because **squash-merge uses the PR
+  title as the commit subject**. Repo setting needed: squash merge with "default to pull request title".
 - `actions/android-setup`: shared JDK/Gradle/NDK setup and versionCode (= commit count).
 - `dependabot.yml`: weekly Gradle + Actions bumps. Submodules are bumped by hand
   (update `libuvc_config.h` version macros when libuvc moves).
