@@ -74,7 +74,9 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
 
         if (showControls) {
             ControlsPanel(
-                controls = (state as? CameraState.Streaming)?.controls.orEmpty(),
+                state = state,
+                recording = recordingSince != null,
+                onSelectFormat = vm::selectFormat,
                 onChange = vm::setControl,
                 onReset = vm::resetControls,
                 modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp),
@@ -203,7 +205,8 @@ private fun InfoPanel(state: CameraState, onSelect: (UvcFormat) -> Unit, modifie
     ) {
         val streaming = state as? CameraState.Streaming
         if (streaming == null) {
-            Text("No camera open", color = Color.White)
+            Text("Camera details", color = Color.White, fontWeight = FontWeight.Bold)
+            Text(noCameraHint(state), color = Color.White)
             return@Column
         }
         Text("Formats (tap to switch)", color = Color.White, fontWeight = FontWeight.Bold)

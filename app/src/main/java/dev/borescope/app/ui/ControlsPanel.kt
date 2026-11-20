@@ -3,6 +3,8 @@ package dev.borescope.app.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -26,18 +28,25 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import dev.borescope.app.camera.CameraState
 import dev.borescope.uvc.ControlValue
 import dev.borescope.uvc.UvcControl
+import dev.borescope.uvc.UvcFormat
 import kotlin.math.roundToInt
 
-/** The camera's own image controls (brightness, white balance, ...), as it reports them. */
+/** Resolution picker and the camera's own image controls (brightness, white balance, ...). */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun ControlsPanel(
-    controls: List<ControlValue>,
+    state: CameraState,
+    recording: Boolean,
+    onSelectFormat: (UvcFormat) -> Unit,
     onChange: (UvcControl, Int) -> Unit,
     onReset: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val streaming = state as? CameraState.Streaming
+    val controls = streaming?.controls.orEmpty()
     Column(
         modifier
             .fillMaxWidth()
@@ -52,10 +61,32 @@ fun ControlsPanel(
             Text("Camera controls", color = Color.White, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             if (controls.isNotEmpty()) TextButton(onClick = onReset) { Text("Reset") }
         }
-        if (controls.isEmpty()) {
-            Text("This camera doesn't report any adjustable controls.", color = Color.White)
+        if (streaming == null) {
+            Text(noCameraHint(state), color = Color.White)
             return@Column
         }
+
+        val options = resolutionOptions(streaming.formats)
+        if (options.isNotEmpty()) {
+            Text("Resolution", color = Color.White, fontWeight = FontWeight.Bold)
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                for (o in options) {
+                    FilterChip(
+                        selected = o.format == streaming.format,
+                        enabled = !recording || o.format == streaming.format,
+                        onClick = { onSelectFormat(o.format) },
+                        label = { Text(o.label) },
+                    )
+                }
+            }
+            if (recording) Text("Stop recording to change resolution.", color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+        }
+
+        if (controls.isEmpty()) {
+            Text("This camera doesn't report any adjustable image controls.", color = Color.White)
+            return@Column
+        }
+        Text("Image", color = Color.White, fontWeight = FontWeight.Bold)
         val byControl = controls.associateBy { it.control }
         for (c in controls) {
             val lockedByAuto = c.control.autoSwitch?.let { byControl[UvcControl.valueOf(it)]?.current == 1 } == true
