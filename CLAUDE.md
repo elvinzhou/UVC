@@ -58,6 +58,7 @@ If these are unset, release builds fall back to the `NIGHTLY_*` key. Never commi
 
 ## Conventions
 
+- App id is `com.elvinzhou.borescope` (debug/nightly: `.debug` suffix). The Kotlin package and `namespace` stay `dev.borescope.*`; they are independent of the app id.
 - JNI surface lives in `UvcNative.kt` ↔ `uvc_jni.cpp`; keep signatures and the
   `FormatType` enum ↔ `UvcFormat.Type` ordinals in sync (`UvcFormatTest` guards the ordinals).
 - R8 keep rules for the library go in `uvc/consumer-rules.pro`, not the app.
@@ -105,7 +106,7 @@ If these are unset, release builds fall back to the `NIGHTLY_*` key. Never commi
    re-plug → "Open with Borescope?" → picture returns.
 5. Decline permission once: "Grant USB permission" button, no dialog loop on resume.
 6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
-7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
+7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo com.elvinzhou.borescope`).
 8. Record 30 s with rotation + mirror on; play it back; unplug mid-recording → file still plays.
 9. ⚙ panel: move each slider and watch the picture respond; toggle auto white balance; Reset.
 10. Photo with rotation/mirror: Google Photos shows it as on screen; opens in a desktop viewer.
@@ -159,7 +160,7 @@ If these are unset, release builds fall back to the `NIGHTLY_*` key. Never commi
    re-plug → "Open with Borescope?" → picture returns.
 5. Decline permission once: "Grant USB permission" button, no dialog loop on resume.
 6. Photo in MJPEG mode: file in Pictures/Borescope is byte-identical to a frame (no re-encode).
-7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo dev.borescope.app`).
+7. Leave it streaming 10 min: no stall error, memory steady (`adb shell dumpsys meminfo com.elvinzhou.borescope`).
 8. Record 30 s with rotation + mirror on; play it back; unplug mid-recording → file still plays.
 9. ⚙ panel: move each slider and watch the picture respond; toggle auto white balance; Reset.
 10. Photo with rotation/mirror: Google Photos shows it as on screen; opens in a desktop viewer.

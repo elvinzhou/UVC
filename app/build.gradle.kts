@@ -11,7 +11,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "dev.borescope.app"
+        applicationId = "com.elvinzhou.borescope" // permanent once published on Play
         minSdk = 29          // MediaStore writes without storage permission
         targetSdk = 36
         // CI passes these in; local builds fall back to the defaults.
@@ -46,6 +46,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Nightly/dev builds install next to the release app instead of fighting its signature.
+            applicationIdSuffix = ".debug"
+        }
         release {
             isMinifyEnabled = true
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
