@@ -128,6 +128,7 @@ Never commit a keystore.
 - [x] No per-frame allocation: one reusable JNI byte[] (`FrameListener` gets `length`;
       data valid only during the call) and a 3-bitmap decode ring (`FrameDecoder`)
 - [x] Adaptive launcher icon
+- [x] On-screen zoom control (＋ / level / －, tap level to reset) over `ViewportState`; a hint says the zoomed view isn't saved (photos/videos are full frame)
 - [x] Resolution picker at the top of the ⚙ panel (`ResolutionOptions`); both panels open with a hint when no camera is connected
 - Hardware check: rotate+mirror a photo and confirm Photos shows it as on screen; format
   picker switches without reconnecting; watch GC in `adb logcat` while streaming

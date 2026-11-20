@@ -1,5 +1,8 @@
 package dev.borescope.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +23,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FilledIconToggleButton
+import androidx.compose.material3.FilledTonalIconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
@@ -29,7 +33,10 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import android.os.SystemClock
@@ -56,10 +63,21 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
     val showControls by vm.showControls.collectAsStateWithLifecycle()
     val recordingSince by vm.recordingSince.collectAsStateWithLifecycle()
     val snackbar = remember { SnackbarHostState() }
+    val viewport = rememberSaveable(saver = ViewportState.Saver) { ViewportState() }
+    // Zoom is view-only; remind the user whenever they start zooming or capture while zoomed.
+    var hintTick by remember { mutableIntStateOf(0) }
+    var showZoomHint by remember { mutableStateOf(false) }
+    LaunchedEffect(viewport.isZoomed, hintTick) {
+        showZoomHint = viewport.isZoomed
+        if (viewport.isZoomed) {
+            delay(4000)
+            showZoomHint = false
+        }
+    }
     LaunchedEffect(Unit) { vm.messages.collect { snackbar.showSnackbar(it) } }
 
     Box(Modifier.fillMaxSize().background(Color.Black)) {
-        frame?.let { Viewport(it, rotation, mirrored) }
+        frame?.let { Viewport(it, rotation, mirrored, viewport) }
 
         StatusMessage(state, onRetry = onRetry, modifier = Modifier.align(Alignment.Center))
 
@@ -80,6 +98,31 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
                 onChange = vm::setControl,
                 onReset = vm::resetControls,
                 modifier = Modifier.align(Alignment.TopCenter).statusBarsPadding().padding(top = 36.dp),
+            )
+        }
+
+        if (frame != null) {
+            ZoomControl(
+                state = viewport,
+                modifier = Modifier.align(Alignment.CenterEnd).padding(end = 12.dp),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = showZoomHint,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 160.dp, start = 24.dp, end = 24.dp),
+        ) {
+            Text(
+                "Zoomed view isn't saved. Photos and videos capture the full frame.",
+                color = Color.White,
+                textAlign = TextAlign.Center,
+                style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier
+                    .background(Color.Black.copy(alpha = 0.85f), MaterialTheme.shapes.medium)
+                    .clickable { showZoomHint = false }
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
             )
         }
 
@@ -106,12 +149,12 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
             FilledIconToggleButton(checked = mirrored, onCheckedChange = { vm.toggleMirror() }) {
                 Icon(AppIcons.Flip, contentDescription = "Mirror")
             }
-            FilledIconButton(onClick = vm::takePhoto, enabled = frame != null) {
+            FilledIconButton(onClick = { if (viewport.isZoomed) hintTick++; vm.takePhoto() }, enabled = frame != null) {
                 Icon(AppIcons.PhotoCamera, contentDescription = "Take photo")
             }
             val recording = recordingSince != null
             FilledIconButton(
-                onClick = vm::toggleRecording,
+                onClick = { if (viewport.isZoomed) hintTick++; vm.toggleRecording() },
                 enabled = recording || state is CameraState.Streaming,
                 colors = if (recording) {
                     IconButtonDefaults.filledIconButtonColors(containerColor = Color.Red, contentColor = Color.White)
@@ -138,6 +181,40 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
             Modifier.align(Alignment.BottomCenter).navigationBarsPadding().padding(bottom = 88.dp),
         )
     }
+}
+
+/** Zoom in/out buttons with the current level (tap the level to reset). */
+@Composable
+private fun ZoomControl(state: ViewportState, modifier: Modifier = Modifier) {
+    Column(
+        modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        FilledTonalIconButton(onClick = { state.zoomBy(ZOOM_STEP) }, enabled = state.zoom < MAX_ZOOM) {
+            Text("+", style = MaterialTheme.typography.titleLarge)
+        }
+        Text(
+            text = zoomLabel(state.zoom),
+            color = Color.White,
+            style = MaterialTheme.typography.labelLarge,
+            modifier = Modifier
+                .clickable(enabled = state.isZoomed) { state.reset() }
+                .background(Color.Black.copy(alpha = 0.5f), MaterialTheme.shapes.small)
+                .padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+        FilledTonalIconButton(onClick = { state.zoomBy(1f / ZOOM_STEP) }, enabled = state.isZoomed) {
+            Text("−", style = MaterialTheme.typography.titleLarge)
+        }
+    }
+}
+
+private const val ZOOM_STEP = 1.25f
+
+/** "1×", "2.5×", "8×": one decimal, dropped when it's .0. */
+internal fun zoomLabel(zoom: Float): String {
+    val tenths = Math.round(zoom * 10)
+    return if (tenths % 10 == 0) "${tenths / 10}×" else "${tenths / 10}.${tenths % 10}×"
 }
 
 @Composable
