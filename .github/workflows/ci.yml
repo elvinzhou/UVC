@@ -29,6 +29,21 @@ jobs:
       - name: Set CI version name
         run: echo "VERSION_NAME=0.1.0-ci.${VERSION_CODE}+${GITHUB_SHA::7}" >> "$GITHUB_ENV"
 
+      # Nightly signing key. Absent on fork PRs, where the committed debug key is used.
+      - name: Decode nightly keystore
+        env:
+          KS: ${{ secrets.NIGHTLY_KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/nightly.jks"
+            {
+              echo "NIGHTLY_KEYSTORE_PATH=$RUNNER_TEMP/nightly.jks"
+              echo "NIGHTLY_KEYSTORE_PASSWORD=${{ secrets.NIGHTLY_KEYSTORE_PASSWORD }}"
+              echo "NIGHTLY_KEY_ALIAS=${{ secrets.NIGHTLY_KEY_ALIAS }}"
+              echo "NIGHTLY_KEY_PASSWORD=${{ secrets.NIGHTLY_KEY_PASSWORD }}"
+            } >> "$GITHUB_ENV"
+          fi
+
       - name: Build debug APK, run unit tests, run lint
         run: ./gradlew assembleDebug testDebugUnitTest lintDebug --stacktrace
 

@@ -41,6 +41,10 @@ git submodule update --init --depth 1        # libusb v1.0.30, libuvc v0.0.8
 `app/debug.keystore` is committed on purpose (password `android`, not a secret) so nightly/CI
 debug APKs share one signature and update in place. Never regenerate it: changing it forces
 everyone to uninstall. The very first nightly signed with a random key must be uninstalled once.
+If repo secrets `NIGHTLY_KEYSTORE_BASE64`, `NIGHTLY_KEYSTORE_PASSWORD`, `NIGHTLY_KEY_ALIAS`,
+`NIGHTLY_KEY_PASSWORD` exist, CI signs debug/nightly APKs with that private key instead
+(`NIGHTLY_KEYSTORE_PATH` env in `app/build.gradle.kts`); the committed key is the fallback.
+Adding or changing the secret key changes the signature: uninstall once.
 
 ### Release signing
 
