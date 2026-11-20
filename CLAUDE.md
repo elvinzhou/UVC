@@ -36,6 +36,12 @@ git submodule update --init --depth 1        # libusb v1.0.30, libuvc v0.0.8
 - `dependabot.yml`: weekly Gradle + Actions bumps. Submodules are bumped by hand
   (update `libuvc_config.h` version macros when libuvc moves).
 
+### Debug signing
+
+`app/debug.keystore` is committed on purpose (password `android`, not a secret) so nightly/CI
+debug APKs share one signature and update in place. Never regenerate it: changing it forces
+everyone to uninstall. The very first nightly signed with a random key must be uninstalled once.
+
 ### Release signing
 
 Repository secrets: `SIGNING_KEYSTORE_BASE64` (`base64 -w0 release.jks`),

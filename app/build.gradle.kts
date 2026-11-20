@@ -23,6 +23,14 @@ android {
     // Without it, assembleRelease produces an unsigned APK.
     val keystorePath = System.getenv("SIGNING_KEYSTORE_PATH")
     signingConfigs {
+        // Fixed, non-secret debug key so every CI/nightly APK has the same signature
+        // and installs over the previous one (a per-runner random key can't update).
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
         if (keystorePath != null) {
             create("release") {
                 storeFile = file(keystorePath)
