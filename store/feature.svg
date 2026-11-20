@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 500" width="1024" height="500">
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#24506A"/><stop offset="1" stop-color="#12293A"/></linearGradient>
+<radialGradient id="glow" cx="50%" cy="50%" r="50%"><stop offset="0" stop-color="#FFC107" stop-opacity=".35"/><stop offset="1" stop-color="#FFC107" stop-opacity="0"/></radialGradient>
+</defs>
+<rect width="1024" height="500" fill="url(#bg)"/>
+<g fill="none" stroke="#fff" stroke-opacity=".10" stroke-width="2">
+<circle cx="965" cy="250" r="90"/><circle cx="965" cy="250" r="150"/><circle cx="965" cy="250" r="210"/><circle cx="965" cy="250" r="270"/>
+<line x1="965" y1="-20" x2="965" y2="520"/><line x1="560" y1="250" x2="1100" y2="250"/>
+</g>
+<circle cx="965" cy="250" r="120" fill="url(#glow)"/>
+<circle cx="965" cy="250" r="34" fill="#FFC107" fill-opacity=".9"/>
+<circle cx="965" cy="250" r="34" fill="none" stroke="#fff" stroke-width="4" stroke-opacity=".7"/>
+<g transform="translate(150 250) scale(3.7) translate(-56.5 -56)"><path d="M34,78 C34,58 46,54 58,50" fill="none" stroke="#fff" stroke-width="5" stroke-linecap="round"/><path fill="#fff" d="M54,42 L66,34 A4,4 0 0 1 71,35 L79,47 A4,4 0 0 1 78,52 L66,60 A4,4 0 0 1 61,59 L53,47 A4,4 0 0 1 54,42 Z"/><circle cx="72" cy="41" r="4" fill="#FFC107"/></g>
+<g font-family="Inter, sans-serif" fill="#fff">
+<text x="310" y="262" font-size="92" font-weight="700" letter-spacing="-1">Borescope</text>
+<text x="314" y="318" font-size="28" font-weight="400" fill="#BFD8E4">Ad-free viewer for USB (UVC) borescopes</text>
+<text x="314" y="366" font-size="22" font-weight="500" fill="#FFC107" letter-spacing="1">OPEN SOURCE  ·  NO TRACKING</text>
+</g>
+</svg>
