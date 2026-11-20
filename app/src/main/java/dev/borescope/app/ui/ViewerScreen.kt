@@ -16,12 +16,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.FiberManualRecord
-import androidx.compose.material.icons.filled.Flip
-import androidx.compose.material.icons.filled.PhotoCamera
-import androidx.compose.material.icons.filled.Stop
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.automirrored.filled.RotateRight
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilledIconButton
@@ -105,13 +99,13 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
                 .navigationBarsPadding().padding(24.dp),
         ) {
             FilledIconButton(onClick = vm::rotate) {
-                Icon(Icons.AutoMirrored.Filled.RotateRight, contentDescription = "Rotate")
+                Icon(AppIcons.RotateRight, contentDescription = "Rotate")
             }
             FilledIconToggleButton(checked = mirrored, onCheckedChange = { vm.toggleMirror() }) {
-                Icon(Icons.Filled.Flip, contentDescription = "Mirror")
+                Icon(AppIcons.Flip, contentDescription = "Mirror")
             }
             FilledIconButton(onClick = vm::takePhoto, enabled = frame != null) {
-                Icon(Icons.Filled.PhotoCamera, contentDescription = "Take photo")
+                Icon(AppIcons.PhotoCamera, contentDescription = "Take photo")
             }
             val recording = recordingSince != null
             FilledIconButton(
@@ -124,13 +118,13 @@ fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
                 },
             ) {
                 if (recording) {
-                    Icon(Icons.Filled.Stop, contentDescription = "Stop recording")
+                    Icon(AppIcons.Stop, contentDescription = "Stop recording")
                 } else {
-                    Icon(Icons.Filled.FiberManualRecord, contentDescription = "Record video", tint = Color.Red)
+                    Icon(AppIcons.FiberManualRecord, contentDescription = "Record video", tint = Color.Red)
                 }
             }
             FilledIconToggleButton(checked = showControls, onCheckedChange = { vm.toggleControls() }) {
-                Icon(Icons.Filled.Tune, contentDescription = "Camera controls")
+                Icon(AppIcons.Tune, contentDescription = "Camera controls")
             }
             FilledIconToggleButton(checked = showInfo, onCheckedChange = { vm.toggleInfo() }) {
                 Icon(Icons.Filled.Info, contentDescription = "Camera details")
