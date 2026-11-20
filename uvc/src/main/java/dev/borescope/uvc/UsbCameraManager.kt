@@ -28,6 +28,9 @@ class UsbCameraManager(private val context: Context) {
     /**
      * Asks the user for permission. Not needed when the app was launched by the
      * USB_DEVICE_ATTACHED intent filter and the user accepted that dialog.
+     *
+     * The app must hold the runtime CAMERA permission first: for video-class devices
+     * Android otherwise answers false immediately, without showing any dialog.
      */
     suspend fun requestPermission(device: UsbDevice): Boolean {
         if (usbManager.hasPermission(device)) return true

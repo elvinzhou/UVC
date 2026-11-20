@@ -1,4 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <uses-feature android:name="android.hardware.usb.host" android:required="true" />
+
+    <!-- Apps targeting Android 9+ only get USB access to video-class devices if they
+         also hold CAMERA. Without it UsbManager.requestPermission() answers "denied"
+         without showing a dialog, and hasPermission() stays false even after the
+         USB_DEVICE_ATTACHED "open with" prompt. Callers must request it at runtime. -->
+    <uses-permission android:name="android.permission.CAMERA" />
+    <!-- CAMERA would otherwise make Play require a built-in camera. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false" />
 </manifest>

@@ -53,7 +53,7 @@ import dev.borescope.app.camera.CameraState
 import dev.borescope.uvc.UvcFormat
 
 @Composable
-fun ViewerScreen(vm: ViewerViewModel) {
+fun ViewerScreen(vm: ViewerViewModel, onRetry: () -> Unit = vm::retry) {
     val state by vm.state.collectAsStateWithLifecycle()
     val frame by vm.frame.collectAsStateWithLifecycle()
     val rotation by vm.rotation.collectAsStateWithLifecycle()
@@ -67,7 +67,7 @@ fun ViewerScreen(vm: ViewerViewModel) {
     Box(Modifier.fillMaxSize().background(Color.Black)) {
         frame?.let { Viewport(it, rotation, mirrored) }
 
-        StatusMessage(state, onRetry = vm::retry, modifier = Modifier.align(Alignment.Center))
+        StatusMessage(state, onRetry = onRetry, modifier = Modifier.align(Alignment.Center))
 
         (state as? CameraState.Streaming)?.let {
             Text(
@@ -187,7 +187,7 @@ private fun StatusMessage(state: CameraState, onRetry: () -> Unit, modifier: Mod
         if (state == CameraState.Connecting) CircularProgressIndicator()
         Text(text, color = Color.White, textAlign = TextAlign.Center)
         when (state) {
-            CameraState.NeedsPermission -> Button(onClick = onRetry) { Text("Grant USB permission") }
+            CameraState.NeedsPermission -> Button(onClick = onRetry) { Text("Grant access") }
             is CameraState.Error -> Button(onClick = onRetry) { Text("Retry") }
             else -> Unit
         }
