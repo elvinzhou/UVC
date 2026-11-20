@@ -25,19 +25,14 @@ android {
     signingConfigs {
         // Fixed, non-secret debug key so every CI/nightly APK has the same signature
         // and installs over the previous one (a per-runner random key can't update).
-        // CI nightly key (secret) when provided, else the committed debug key.
+        // CI nightly key (from secrets). Without it the default per-machine debug key is used.
         val nightlyPath = System.getenv("NIGHTLY_KEYSTORE_PATH")
-        getByName("debug") {
-            if (nightlyPath != null) {
+        if (nightlyPath != null) {
+            getByName("debug") {
                 storeFile = file(nightlyPath)
                 storePassword = System.getenv("NIGHTLY_KEYSTORE_PASSWORD")
                 keyAlias = System.getenv("NIGHTLY_KEY_ALIAS")
                 keyPassword = System.getenv("NIGHTLY_KEY_PASSWORD")
-            } else {
-                storeFile = file("debug.keystore")
-                storePassword = "android"
-                keyAlias = "androiddebugkey"
-                keyPassword = "android"
             }
         }
         if (keystorePath != null) {
