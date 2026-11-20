@@ -30,8 +30,8 @@ git submodule update --init --depth 1        # libusb v1.0.30, libuvc v0.0.8
   uploads the debug APK and reports as artifacts. Green pushes to `main`
   replace the `nightly` pre-release with the latest debug APK.
 - `workflows/release.yml`: pushing tag `vX.Y.Z` builds, tests and lints the
-  release, then publishes a GitHub Release. The APK is signed when the
-  repository secrets exist; otherwise only the debug APK is attached.
+  release, then publishes a GitHub Release with the APK and the app bundle (`.aab`, for Play
+  upload). Both are signed when the repository secrets exist; otherwise only the debug APK is attached.
 - `actions/android-setup`: shared JDK/Gradle/NDK setup and versionCode (= commit count).
 - `dependabot.yml`: weekly Gradle + Actions bumps. Submodules are bumped by hand
   (update `libuvc_config.h` version macros when libuvc moves).

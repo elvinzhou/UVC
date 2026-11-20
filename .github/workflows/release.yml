@@ -1,6 +1,6 @@
 name: Release
 
-# Push a tag like v0.2.0 to build a release APK and publish a GitHub Release.
+# Push a tag like v0.2.0 to build a release APK + app bundle (.aab) and publish a GitHub Release.
 on:
   push:
     tags: ["v*"]
@@ -38,13 +38,14 @@ jobs:
           SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
           SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
           SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
-        run: ./gradlew testReleaseUnitTest lintRelease assembleRelease assembleDebug --stacktrace
+        run: ./gradlew testReleaseUnitTest lintRelease assembleRelease bundleRelease assembleDebug --stacktrace
 
       - name: Collect APKs
         run: |
           mkdir dist
           if [ "$HAS_KEYSTORE" = "true" ]; then
             cp app/build/outputs/apk/release/app-release.apk "dist/borescope-${GITHUB_REF_NAME}.apk"
+            cp app/build/outputs/bundle/release/app-release.aab "dist/borescope-${GITHUB_REF_NAME}.aab"
           else
             echo "::warning::No signing secrets set; publishing the debug APK only. See CLAUDE.md > Release signing."
           fi
@@ -55,7 +56,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
         run: |
-          gh release create "$GITHUB_REF_NAME" dist/*.apk \
+          gh release create "$GITHUB_REF_NAME" dist/* \
             --title "Borescope ${GITHUB_REF_NAME}" \
             --generate-notes \
             --verify-tag
