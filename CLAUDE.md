@@ -33,7 +33,7 @@ git submodule update --init --depth 1        # libusb v1.0.30, libuvc v0.0.8
   the last `v*` tag (Conventional Commits: `feat:` minor, `fix:`/`perf:`/`revert:` patch, `!:` or
   `BREAKING CHANGE` major — minor while the major is 0; docs/chore/ci/test/build/style/refactor never
   release). If a release is due it builds, tests, lints and publishes a GitHub Release (APK + `.aab`,
-  signed when the repository secrets exist, else the debug APK only) and creates the tag. A manual
+  signed with the `SIGNING_*` secrets, else the `NIGHTLY_*` ones; with neither, only the debug APK is attached) and creates the tag. A manual
   `vX.Y.Z` tag push still works. The first release is `0.1.0` once any release-worthy commit lands.
 - `workflows/pr-title.yml`: PR titles must be Conventional Commits, because **squash-merge uses the PR
   title as the commit subject**. Repo setting needed: squash merge with "default to pull request title".
@@ -54,7 +54,7 @@ Changing the key forces an uninstall; back up the keystore somewhere safe.
 Repository secrets: `SIGNING_KEYSTORE_BASE64` (`base64 -w0 release.jks`),
 `SIGNING_KEYSTORE_PASSWORD`, `SIGNING_KEY_ALIAS`, `SIGNING_KEY_PASSWORD`.
 `app/build.gradle.kts` reads `SIGNING_KEYSTORE_PATH` + those passwords from the environment.
-Never commit a keystore.
+If these are unset, release builds fall back to the `NIGHTLY_*` key. Never commit a keystore.
 
 ## Conventions
 

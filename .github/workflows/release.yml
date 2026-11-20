@@ -7,6 +7,7 @@ on:
   push:
     branches: [main]
     tags: ["v*"]
+  workflow_dispatch: # re-run on main, e.g. after deleting a bad release and its tag
 
 permissions:
   contents: write
@@ -45,7 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      HAS_KEYSTORE: ${{ secrets.SIGNING_KEYSTORE_BASE64 != '' }}
+      # Release key (SIGNING_*) if set, else the nightly key (NIGHTLY_*).
+      HAS_KEYSTORE: ${{ (secrets.SIGNING_KEYSTORE_BASE64 || secrets.NIGHTLY_KEYSTORE_BASE64) != '' }}
       VERSION: ${{ needs.version.outputs.version }}
     steps:
       - uses: actions/checkout@v7
@@ -61,16 +63,16 @@ jobs:
       - name: Decode signing keystore
         if: env.HAS_KEYSTORE == 'true'
         env:
-          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 }}
+          SIGNING_KEYSTORE_BASE64: ${{ secrets.SIGNING_KEYSTORE_BASE64 || secrets.NIGHTLY_KEYSTORE_BASE64 }}
         run: |
           echo "$SIGNING_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/release.jks"
           echo "SIGNING_KEYSTORE_PATH=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
 
       - name: Test, lint, build
         env:
-          SIGNING_KEYSTORE_PASSWORD: ${{ secrets.SIGNING_KEYSTORE_PASSWORD }}
-          SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
-          SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
+          SIGNING_KEYSTORE_PASSWORD: ${{ (secrets.SIGNING_KEYSTORE_BASE64 != '' && secrets.SIGNING_KEYSTORE_PASSWORD) || secrets.NIGHTLY_KEYSTORE_PASSWORD }}
+          SIGNING_KEY_ALIAS: ${{ (secrets.SIGNING_KEYSTORE_BASE64 != '' && secrets.SIGNING_KEY_ALIAS) || secrets.NIGHTLY_KEY_ALIAS }}
+          SIGNING_KEY_PASSWORD: ${{ (secrets.SIGNING_KEYSTORE_BASE64 != '' && secrets.SIGNING_KEY_PASSWORD) || secrets.NIGHTLY_KEY_PASSWORD }}
         run: ./gradlew testReleaseUnitTest lintRelease assembleRelease bundleRelease assembleDebug --stacktrace
 
       - name: Collect artifacts
@@ -80,9 +82,9 @@ jobs:
             cp app/build/outputs/apk/release/app-release.apk "dist/borescope-v${VERSION}.apk"
             cp app/build/outputs/bundle/release/app-release.aab "dist/borescope-v${VERSION}.aab"
           else
-            echo "::warning::No signing secrets set; publishing the debug APK only. See CLAUDE.md > Release signing."
+            echo "::warning::No SIGNING_* or NIGHTLY_* secrets set; publishing the debug APK only. See CLAUDE.md > Release signing."
+            cp app/build/outputs/apk/debug/app-debug.apk "dist/borescope-v${VERSION}-debug.apk"
           fi
-          cp app/build/outputs/apk/debug/app-debug.apk "dist/borescope-v${VERSION}-debug.apk"
 
       # On a branch push this creates the tag at the built commit; on a tag push it exists already.
       - name: Publish GitHub Release
